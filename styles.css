@@ -574,3 +574,140 @@
   animation-duration: 0.4s;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
 }
+
+/* Drag and drop enhancements */
+
+/* Show nodes are draggable */
+.mm-node {
+  cursor: grab;
+}
+
+.mm-node:active {
+  cursor: grabbing;
+}
+
+/* Don't show grab cursor when editing */
+.mm-node.mm-edit-node {
+  cursor: text;
+}
+
+/* Dragging state */
+.mm-node[draggable="true"]:active {
+  opacity: 0.7;
+  cursor: grabbing;
+}
+
+/* Enhanced drag indicator */
+.mm-node-layout-indicate {
+  transform-origin: center center;
+  animation: indicatorPulse 0.6s ease-in-out infinite;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+  opacity: 0.95;
+  z-index: 1000;
+}
+
+@keyframes indicatorPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* Drop target highlighting */
+.mm-node.mm-drop-target {
+  outline: 3px dashed var(--interactive-accent);
+  outline-offset: 4px;
+  animation: dropTargetPulse 1s ease-in-out infinite;
+}
+
+@keyframes dropTargetPulse {
+  0%, 100% {
+    outline-color: var(--interactive-accent);
+    opacity: 1;
+  }
+  50% {
+    outline-color: rgba(var(--interactive-accent-rgb), 0.5);
+    opacity: 0.8;
+  }
+}
+
+/* Being dragged node styling */
+.mm-node.mm-dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.mm-node.mm-dragging .mm-node-content {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border-color: var(--interactive-accent);
+}
+
+/* Drag affordance hint */
+.mm-node .mm-node-content::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 20px;
+  background: linear-gradient(to bottom,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 20%,
+    rgba(255, 255, 255, 0.2) 80%,
+    transparent 100%);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.mm-node:hover .mm-node-content::after {
+  opacity: 0.6;
+}
+
+/* Instructions tooltip (can be added via settings) */
+.mm-drag-hint {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background: rgba(45, 45, 48, 0.95);
+  backdrop-filter: blur(10px);
+  color: white;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  animation: fadeInUp 0.3s ease;
+  pointer-events: none;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.theme-light .mm-drag-hint {
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Hover effect for potential drop targets during drag */
+.mm-mindmap.mm-dragging-active .mm-node:not(.mm-dragging):hover {
+  outline: 2px solid rgba(var(--interactive-accent-rgb), 0.5);
+  outline-offset: 3px;
+}

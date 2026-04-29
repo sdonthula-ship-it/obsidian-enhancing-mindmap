@@ -1586,6 +1586,10 @@ export default class MindMap {
                 var id = evt.target.closest('.mm-node').getAttribute('data-id');
                 this._dragNode = this.getNodeById(id);
                 this.drag = true;
+
+                // Add visual feedback for dragging
+                this._dragNode.containEl.classList.add('mm-dragging');
+                this.appEl.classList.add('mm-dragging-active');
             }
         }
     }
@@ -1594,6 +1598,17 @@ export default class MindMap {
         this.drag = false;
         this._indicateDom.style.display = 'none'
         this._menuDom.style.display = 'none';
+
+        // Remove dragging visual feedback
+        if (this._dragNode) {
+            this._dragNode.containEl.classList.remove('mm-dragging');
+        }
+        this.appEl.classList.remove('mm-dragging-active');
+
+        // Remove drop target highlighting from all nodes
+        this.traverseDF((node: INode) => {
+            node.containEl.classList.remove('mm-drop-target');
+        });
     }
 
     appDragover(evt: MouseEvent) {
@@ -1608,6 +1623,11 @@ export default class MindMap {
             this.dx = y - this.startY;
         }
 
+        // Remove previous drop target highlighting
+        this.traverseDF((node: INode) => {
+            node.containEl.classList.remove('mm-drop-target');
+        });
+
         if(target.closest('.mm-node')){
             var nodeId =target.closest('.mm-node').getAttribute('data-id');
             var node = this.getNodeById(nodeId);
@@ -1617,6 +1637,11 @@ export default class MindMap {
             this._indicateDom.style.left = box.x + box.width / 2 - 40 / 2 + 'px';
             this._indicateDom.style.top = box.y - 90 + 'px';
             this._indicateDom.className = 'mm-node-layout-indicate';
+
+            // Highlight the drop target node
+            if (node !== this._dragNode) {
+                node.containEl.classList.add('mm-drop-target');
+            }
 
             if( this._dragType == 'top') {
                 this._indicateDom.classList.add('mm-arrow-top');

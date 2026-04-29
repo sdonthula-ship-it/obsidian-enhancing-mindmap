@@ -1191,6 +1191,20 @@ export default class MindMapPlugin extends Plugin {
     });
 
 
+    // Show drag and drop help
+    this.addCommand({
+      id: 'Show drag help',
+      name: `${t('Show drag & drop help')}`,
+      callback: () => {
+        new Notice(`Drag & Drop Guide:
+• Drag any node to move it
+• Drop on another node to reparent
+• Drop on top/bottom: add as sibling
+• Drop on left/right: add as child
+• Ctrl+Drag: copy instead of move`, 10000);
+      }
+    });
+
     this.registerView(mindmapViewType, (leaf) => new MindMapView(leaf, this));
     this.registerEvents();
     this.registerMonkeyAround();
