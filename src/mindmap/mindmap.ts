@@ -1577,8 +1577,15 @@ export default class MindMap {
         }
     }
 
-    appDragstart(evt: MouseEvent) {
+    appDragstart(evt: any) {
         evt.stopPropagation();
+
+        // Set dataTransfer for HTML5 drag and drop
+        if (evt.dataTransfer) {
+            evt.dataTransfer.effectAllowed = 'move';
+            evt.dataTransfer.setData('text/plain', 'mindmap-node');
+        }
+
         this.startX = evt.pageX;
         this.startY = evt.pageY;
         if (evt.target instanceof HTMLElement) {
@@ -1587,6 +1594,8 @@ export default class MindMap {
                 this._dragNode = this.getNodeById(id);
                 this.drag = true;
 
+                console.log('Drag started for node:', this._dragNode.data.text);
+
                 // Add visual feedback for dragging
                 this._dragNode.containEl.classList.add('mm-dragging');
                 this.appEl.classList.add('mm-dragging-active');
@@ -1594,7 +1603,8 @@ export default class MindMap {
         }
     }
 
-    appDragend(evt: MouseEvent) {
+    appDragend(evt: any) {
+        console.log('Drag ended');
         this.drag = false;
         this._indicateDom.style.display = 'none'
         this._menuDom.style.display = 'none';
@@ -1611,9 +1621,14 @@ export default class MindMap {
         });
     }
 
-    appDragover(evt: MouseEvent) {
+    appDragover(evt: any) {
         evt.preventDefault();
         evt.stopPropagation();
+
+        // Set dropEffect
+        if (evt.dataTransfer) {
+            evt.dataTransfer.dropEffect = 'move';
+        }
         var target =evt.target as HTMLElement;
         var x = evt.pageX;
         var y = evt.pageY;
@@ -1721,22 +1736,36 @@ export default class MindMap {
     }
 
     appDrop(evt: any) {
+        console.log('Drop event fired', evt);
+
+        if (!this._dragNode) {
+            console.error('No drag node set!');
+            return;
+        }
+
         if (evt.target instanceof HTMLElement) {
             if (evt.target.closest('.mm-node')) {
                 evt.preventDefault();
+                evt.stopPropagation();
+
                 var dropNodeId = evt.target.closest('.mm-node').getAttribute('data-id');
                 var dropNode = this.getNodeById(dropNodeId);
-                if (this._dragNode.data.isRoot) {
 
+                console.log('Dropping', this._dragNode.data.text, 'onto', dropNode.data.text, 'type:', this._dragType);
+
+                if (this._dragNode.data.isRoot) {
+                    console.log('Cannot move root node');
                 } else {
                     if (evt.ctrlKey) {// Ctrl key pressed: copy the node
+                        console.log('Copying node');
                         let copiedNode = this.copyNode(this._dragNode);
                         dropNode.select();
                         this.pasteNode(copiedNode);
 
                     }
                     else {// Move the node
-                        this.moveNode(this._dragNode, dropNode,this._dragType);
+                        console.log('Moving node with type:', this._dragType);
+                        this.moveNode(this._dragNode, dropNode, this._dragType);
                     }
                 }
             }
