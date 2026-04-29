@@ -180,3 +180,12 @@ See `IMPROVEMENTS.md` for detailed documentation of recent visual and UX enhance
 - Depth-based visual hierarchy
 - Comprehensive theme support
 - Custom scrollbar styling
+
+### Drag & Drop (NEW!)
+
+See `DRAG_DROP_GUIDE.md` for complete guide. Quick overview:
+- **All nodes are always draggable** - just drag any node to reparent it
+- **Visual feedback** - grab cursor, semi-transparent drag, pulsing drop targets
+- **Drop zones** - top/bottom for siblings, center/edges for children
+- **Copy mode** - Hold Ctrl/Cmd while dragging to copy instead of move
+- **Command**: "Show drag & drop help" for quick reference
