@@ -88,7 +88,7 @@ export default class Node {
         this.containEl.setAttribute('contentEditable','false');
         this.containEl.setAttribute('tabIndex','-1');
         this.containEl.setAttribute('data-id',this.data.id);
-        this.containEl.setAttribute('draggable','true'); // Always draggable for better UX
+        this.containEl.setAttribute('draggable','false'); // Only draggable when selected
 
         this.contentEl = document.createElement('div');
         this.contentEl.classList.add('mm-node-content');
@@ -239,7 +239,7 @@ export default class Node {
 
     select(){
         this.isSelect = true;
-        // Node is always draggable, no need to set attribute here
+        this.containEl.setAttribute('draggable','true'); // Enable dragging when selected
         //if(this.mindmap.view.plugin.settings.focusOnMove) {
             this.containEl.focus(); // set the dom to be focused
         //}
@@ -254,7 +254,7 @@ export default class Node {
 
     unSelect(){
         this.isSelect = false;
-        // Node remains draggable even when unselected
+        this.containEl.setAttribute('draggable','false'); // Disable dragging when unselected
         if(this.containEl.classList.contains('mm-node-select')){
             this.containEl.classList.remove('mm-node-select')
         }

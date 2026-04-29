@@ -577,13 +577,14 @@
 
 /* Drag and drop enhancements */
 
-/* Show nodes are draggable */
-.mm-node {
+/* Only show grab cursor on selected (draggable) nodes */
+.mm-node[draggable="true"] {
   cursor: grab;
 }
 
-.mm-node:active {
+.mm-node[draggable="true"]:active {
   cursor: grabbing;
+  opacity: 0.7;
 }
 
 /* Don't show grab cursor when editing */
@@ -591,10 +592,9 @@
   cursor: text;
 }
 
-/* Dragging state */
-.mm-node[draggable="true"]:active {
-  opacity: 0.7;
-  cursor: grabbing;
+/* Regular nodes show pointer cursor */
+.mm-node[draggable="false"] {
+  cursor: pointer;
 }
 
 /* Enhanced drag indicator */
@@ -647,28 +647,33 @@
   border-color: var(--interactive-accent);
 }
 
-/* Drag affordance hint */
-.mm-node .mm-node-content::after {
-  content: '';
+/* Drag affordance hint - only on draggable nodes */
+.mm-node[draggable="true"] .mm-node-content::after {
+  content: '⋮⋮';
   position: absolute;
-  right: 4px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 20px;
-  background: linear-gradient(to bottom,
-    transparent 0%,
-    rgba(255, 255, 255, 0.2) 20%,
-    rgba(255, 255, 255, 0.2) 80%,
-    transparent 100%);
-  border-radius: 2px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.4);
+  opacity: 0.8;
+  transition: all 0.2s ease;
   pointer-events: none;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
 }
 
-.mm-node:hover .mm-node-content::after {
-  opacity: 0.6;
+.mm-node[draggable="true"]:hover .mm-node-content::after {
+  opacity: 1;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.theme-light .mm-node[draggable="true"] .mm-node-content::after {
+  color: rgba(0, 0, 0, 0.4);
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+}
+
+.theme-light .mm-node[draggable="true"]:hover .mm-node-content::after {
+  color: rgba(0, 0, 0, 0.6);
 }
 
 /* Instructions tooltip (can be added via settings) */
@@ -710,4 +715,38 @@
 .mm-mindmap.mm-dragging-active .mm-node:not(.mm-dragging):hover {
   outline: 2px solid rgba(var(--interactive-accent-rgb), 0.5);
   outline-offset: 3px;
+}
+
+/* Clear indication that selected node is draggable */
+.mm-node.mm-node-select[draggable="true"] .mm-node-content::before {
+  content: '✋ Drag to move';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: rgba(var(--interactive-accent-rgb), 0.95);
+  color: white;
+  font-size: 11px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  animation: dragHintFade 3s ease-in-out;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes dragHintFade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(5px); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-5px); }
+}
+
+/* Enhanced selection border for draggable nodes */
+.mm-node.mm-node-select[draggable="true"] .mm-node-content {
+  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.3),
+              0 0 0 6px rgba(var(--interactive-accent-rgb), 0.15),
+              0 4px 16px rgba(0, 0, 0, 0.3) !important;
 }
