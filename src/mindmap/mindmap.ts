@@ -62,6 +62,7 @@ export default class MindMap {
     _indicateDom:HTMLElement;
     _menuDom:HTMLElement;
     _dragType:string='';
+    _dragoverCount:number = 0;
     _left:number;
     _top:number;
     dispLevel:number;
@@ -1608,6 +1609,7 @@ export default class MindMap {
         this.drag = false;
         this._indicateDom.style.display = 'none'
         this._menuDom.style.display = 'none';
+        this._dragoverCount = 0; // Reset counter
 
         // Remove dragging visual feedback
         if (this._dragNode) {
@@ -1622,6 +1624,7 @@ export default class MindMap {
     }
 
     appDragover(evt: any) {
+        // CRITICAL: Must preventDefault to allow drop
         evt.preventDefault();
         evt.stopPropagation();
 
@@ -1629,6 +1632,7 @@ export default class MindMap {
         if (evt.dataTransfer) {
             evt.dataTransfer.dropEffect = 'move';
         }
+
         var target =evt.target as HTMLElement;
         var x = evt.pageX;
         var y = evt.pageY;
@@ -1643,9 +1647,18 @@ export default class MindMap {
             node.containEl.classList.remove('mm-drop-target');
         });
 
-        if(target.closest('.mm-node')){
-            var nodeId =target.closest('.mm-node').getAttribute('data-id');
+        var nodeEl = target.closest('.mm-node');
+        if(nodeEl){
+            var nodeId = nodeEl.getAttribute('data-id');
             var node = this.getNodeById(nodeId);
+
+            // Log every 10th dragover to avoid spam
+            if (!this._dragoverCount) this._dragoverCount = 0;
+            this._dragoverCount++;
+            if (this._dragoverCount % 10 === 0) {
+                console.log('Dragover on:', node.data.text);
+            }
+
             var box = node.getBox();
             this._dragType = this._getDragType(node, x, y);
             this._indicateDom.style.display = 'block';
@@ -1679,6 +1692,8 @@ export default class MindMap {
             this._indicateDom.style.display = 'none';
         }
 
+        // CRITICAL: Return false to allow drop
+        return false;
     }
 
     _getDragType(node:INode, x:number, y:number) {

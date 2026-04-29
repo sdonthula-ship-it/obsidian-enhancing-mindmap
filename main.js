@@ -8455,6 +8455,7 @@ class MindMap {
         this.mindScale = 100;
         this.timeOut = null;
         this._dragType = '';
+        this._dragoverCount = 0;
         this.isComposing = false;
         this.isFocused = true;
         this.setting = Object.assign({
@@ -9584,6 +9585,7 @@ class MindMap {
         this.drag = false;
         this._indicateDom.style.display = 'none';
         this._menuDom.style.display = 'none';
+        this._dragoverCount = 0; // Reset counter
         // Remove dragging visual feedback
         if (this._dragNode) {
             this._dragNode.containEl.classList.remove('mm-dragging');
@@ -9595,6 +9597,7 @@ class MindMap {
         });
     }
     appDragover(evt) {
+        // CRITICAL: Must preventDefault to allow drop
         evt.preventDefault();
         evt.stopPropagation();
         // Set dropEffect
@@ -9612,9 +9615,17 @@ class MindMap {
         this.traverseDF((node) => {
             node.containEl.classList.remove('mm-drop-target');
         });
-        if (target.closest('.mm-node')) {
-            var nodeId = target.closest('.mm-node').getAttribute('data-id');
+        var nodeEl = target.closest('.mm-node');
+        if (nodeEl) {
+            var nodeId = nodeEl.getAttribute('data-id');
             var node = this.getNodeById(nodeId);
+            // Log every 10th dragover to avoid spam
+            if (!this._dragoverCount)
+                this._dragoverCount = 0;
+            this._dragoverCount++;
+            if (this._dragoverCount % 10 === 0) {
+                console.log('Dragover on:', node.data.text);
+            }
             var box = node.getBox();
             this._dragType = this._getDragType(node, x, y);
             this._indicateDom.style.display = 'block';
@@ -9651,6 +9662,8 @@ class MindMap {
         else {
             this._indicateDom.style.display = 'none';
         }
+        // CRITICAL: Return false to allow drop
+        return false;
     }
     _getDragType(node, x, y) {
         if (!node)
