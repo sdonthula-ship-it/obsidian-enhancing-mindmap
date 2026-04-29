@@ -2,20 +2,38 @@
 
 ## 🎯 How to Rearrange Your Mindmap
 
-The plugin now supports **intuitive drag-and-drop** for reorganizing your mindmap structure!
+The plugin supports **drag-and-drop** for reorganizing your mindmap structure!
+
+## ⚠️ IMPORTANT: Select-Then-Drag Workflow
+
+**You MUST select a node before you can drag it:**
+
+```
+1. CLICK node → Node gets selected (red border)
+2. DRAG selected node → Move/reparent it
+```
+
+This is intentional design to:
+- Prevent accidental drags
+- Allow proper text selection when editing
+- Follow standard UI patterns
 
 ## ✨ New Features
 
-### Always Draggable
-- **All nodes are now draggable** - no need to select them first
-- **Grab cursor** (✋) appears when hovering over nodes
+### Select-Then-Drag Pattern
+- **IMPORTANT**: You must SELECT a node first before dragging it
+- **Click** a node to select it (red border appears)
+- **Grab cursor** (✋) appears on selected nodes
 - **Grabbing cursor** (✊) appears while dragging
 
 ### Visual Feedback
-- **Semi-transparent dragged node** - shows what you're moving
-- **Animated drop target** - dashed outline pulses on the destination node
-- **Pulsing arrow indicator** - shows exactly where the node will be placed
-- **Drag handle** - subtle vertical bar appears on hover (right side of nodes)
+- **Selection border** - Red/accent-colored border with glow when node is selected
+- **"✋ Drag to move" tooltip** - Appears briefly when you select a node
+- **Drag handle (⋮⋮)** - Appears on right side of selected nodes
+- **Grab cursor (✋)** - Shows on selected nodes (draggable)
+- **Semi-transparent dragged node** - Shows what you're moving
+- **Animated drop target** - Dashed outline pulses on destination
+- **Pulsing arrow indicator** - Shows exactly where node will be placed
 
 ## 📖 How to Use
 
@@ -23,10 +41,13 @@ The plugin now supports **intuitive drag-and-drop** for reorganizing your mindma
 
 To move "Gen AI vs ETL" to become a child of "Data Framework":
 
-1. **Hover** over "Gen AI vs ETL"
+1. **Click** on "Gen AI vs ETL" to select it
+   - Red/accent-colored border appears
+   - "✋ Drag to move" tooltip shows briefly
    - Cursor changes to ✋ (grab)
+   - Drag handle (⋮⋮) appears on right
 
-2. **Click and hold** the node
+2. **Click and drag** the selected node
    - Node becomes semi-transparent
    - Cursor changes to ✊ (grabbing)
 
@@ -95,21 +116,23 @@ Run the command **"Show drag & drop help"** from the command palette (Ctrl/Cmd+P
 
 ## 💡 Tips
 
-1. **Hover first** - See the grab cursor before dragging
-2. **Watch the arrow** - It shows exactly where the node will go
-3. **Use drop zones** - Target specific areas for precise placement
-4. **Hold Ctrl to copy** - Keep the original node in place
-5. **Undo works** - Ctrl/Cmd+Z to undo any moves
+1. **Select first** - Click node to select it before dragging (red border appears)
+2. **Look for ⋮⋮** - Drag handle appears on selected nodes
+3. **Watch the arrow** - It shows exactly where the node will go
+4. **Use drop zones** - Target specific areas for precise placement
+5. **Hold Ctrl to copy** - Keep the original node in place
+6. **Undo works** - Ctrl/Cmd+Z to undo any moves
 
 ## 📝 Example Workflow
 
 ### Move "Gen AI vs ETL" under "Data Framework":
 
-1. Hover over "Gen AI vs ETL" → See ✋ cursor
-2. Click and drag → Node becomes transparent
-3. Drag over "Data Framework" → See pulsing outline
-4. Position over the RIGHT side → See ➡️ arrow
-5. Release mouse → "Gen AI vs ETL" is now a child of "Data Framework"!
+1. **Click** "Gen AI vs ETL" → Red border + "✋ Drag to move" tooltip
+2. See ✋ cursor and ⋮⋮ drag handle → Node is now draggable
+3. **Click and drag** → Node becomes transparent, cursor shows ✊
+4. Drag over "Data Framework" → See pulsing outline
+5. Position over the RIGHT side → See ➡️ arrow
+6. **Release mouse** → "Gen AI vs ETL" is now a child of "Data Framework"!
 
 ### Result:
 ```
@@ -128,11 +151,12 @@ Root
 
 | Action | How To |
 |--------|--------|
-| **Move node** | Drag and drop |
-| **Copy node** | Ctrl + Drag and drop |
-| **Add as sibling above** | Drop on top half |
-| **Add as sibling below** | Drop on bottom half |
-| **Add as child** | Drop on center/edges |
+| **Select node** | Click on it (red border appears) |
+| **Move node** | Select, then drag and drop |
+| **Copy node** | Select, then Ctrl + Drag |
+| **Add as sibling above** | Drag to top half of target |
+| **Add as sibling below** | Drag to bottom half of target |
+| **Add as child** | Drag to center/edges of target |
 | **Undo move** | Ctrl/Cmd + Z |
 | **Get help** | Command: "Show drag & drop help" |
 
