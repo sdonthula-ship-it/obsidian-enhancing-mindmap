@@ -98,6 +98,12 @@ export default class MindMap {
         this.appEl.appendChild(this.contentEL);
         this.draw = SVG(this.contentEL).size('100%', '100%');
 
+        // CRITICAL: Make SVG pass through drag events to nodes beneath
+        const svgElement = this.contentEL.querySelector('svg');
+        if (svgElement) {
+            svgElement.style.pointerEvents = 'none';
+        }
+
         this.setAppSetting();
         containerEL.appendChild(this.appEl);
         this.containerEL = containerEL;
@@ -308,9 +314,15 @@ export default class MindMap {
         this.appEl.addEventListener('mouseover', this.appMouseOverFn);
         this.appEl.addEventListener('dblclick', this.appDblclickFn);
         this.appEl.addEventListener('dragstart', this.appDragstart);
+
+        // Add drag events to both appEl and document for better compatibility
         this.appEl.addEventListener('dragover', this.appDragover);
         this.appEl.addEventListener('dragend', this.appDragend);
         this.appEl.addEventListener('drop', this.appDrop);
+
+        // CRITICAL: Also add to document to catch all drag events
+        document.addEventListener('dragover', this.appDragover);
+        document.addEventListener('drop', this.appDrop);
         document.addEventListener('keyup', this.appKeyup);
         document.addEventListener('keydown', this.appKeydown);
         document.addEventListener('compositionstart',this.compositionStart)
@@ -341,6 +353,10 @@ export default class MindMap {
         this.appEl.removeEventListener('dblClick', this.appDblclickFn);
         this.appEl.removeEventListener('mouseover', this.appMouseOverFn);
         this.appEl.removeEventListener('drop', this.appDrop);
+
+        // Remove document listeners
+        document.removeEventListener('dragover', this.appDragover);
+        document.removeEventListener('drop', this.appDrop);
         document.removeEventListener('keyup', this.appKeyup);
         document.removeEventListener('keydown', this.appKeydown);
         document.removeEventListener('compositionstart',this.compositionStart)
@@ -1600,6 +1616,13 @@ export default class MindMap {
                 // Add visual feedback for dragging
                 this._dragNode.containEl.classList.add('mm-dragging');
                 this.appEl.classList.add('mm-dragging-active');
+
+                // CRITICAL: Make SVG pass-through during drag to allow dragover events
+                const svgElement = this.contentEL.querySelector('svg');
+                if (svgElement) {
+                    svgElement.style.pointerEvents = 'none';
+                    console.log('SVG pointer-events set to none');
+                }
             }
         }
     }
@@ -1616,6 +1639,13 @@ export default class MindMap {
             this._dragNode.containEl.classList.remove('mm-dragging');
         }
         this.appEl.classList.remove('mm-dragging-active');
+
+        // Restore SVG pointer events for connection line hovers
+        const svgElement = this.contentEL.querySelector('svg');
+        if (svgElement) {
+            svgElement.style.pointerEvents = 'auto';
+            console.log('SVG pointer-events restored to auto');
+        }
 
         // Remove drop target highlighting from all nodes
         this.traverseDF((node: INode) => {
