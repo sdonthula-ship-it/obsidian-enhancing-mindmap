@@ -1614,10 +1614,10 @@ class Layout {
     constructor(node, direct, colors) {
         this.layoutName = 'mindmap';
         this.direct = '';
-        this.levelDis = 40;
-        this.nodeDis = 8;
-        this.firstLevelDis = 80;
-        this.firstNodeDis = 20;
+        this.levelDis = 60; // Horizontal spacing between hierarchy levels (increased from 40)
+        this.nodeDis = 30; // Vertical spacing between sibling nodes (increased from 8)
+        this.firstLevelDis = 100; // Horizontal spacing for first level from root (increased from 80)
+        this.firstNodeDis = 40; // Vertical spacing between first level siblings (increased from 20)
         this.isCache = true;
         this.lefts = [];
         this.rights = [];

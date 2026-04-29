@@ -7,10 +7,10 @@ export default class Layout {
     direct:string='';
     root:Node;
     mind?:MindMap;
-    levelDis:number = 40;
-    nodeDis:number = 8;
-    firstLevelDis:number = 80;
-    firstNodeDis:number = 20;
+    levelDis:number = 60;           // Horizontal spacing between hierarchy levels (increased from 40)
+    nodeDis:number = 30;             // Vertical spacing between sibling nodes (increased from 8)
+    firstLevelDis:number = 100;      // Horizontal spacing for first level from root (increased from 80)
+    firstNodeDis:number = 40;        // Vertical spacing between first level siblings (increased from 20)
     svgDom?:any;
     isCache:boolean = true;
     lefts:Node[]=[];
