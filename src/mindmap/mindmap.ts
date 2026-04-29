@@ -1654,6 +1654,14 @@ export default class MindMap {
     }
 
     appDragover(evt: any) {
+        // Log EVERY dragover to see if this function is even called
+        if (!this._dragoverCount) this._dragoverCount = 0;
+        this._dragoverCount++;
+
+        if (this._dragoverCount === 1 || this._dragoverCount % 50 === 0) {
+            console.log('>>> appDragover CALLED! Count:', this._dragoverCount, 'Target:', evt.target);
+        }
+
         // CRITICAL: Must preventDefault to allow drop
         evt.preventDefault();
         evt.stopPropagation();
@@ -1682,12 +1690,7 @@ export default class MindMap {
             var nodeId = nodeEl.getAttribute('data-id');
             var node = this.getNodeById(nodeId);
 
-            // Log every 10th dragover to avoid spam
-            if (!this._dragoverCount) this._dragoverCount = 0;
-            this._dragoverCount++;
-            if (this._dragoverCount % 10 === 0) {
-                console.log('Dragover on:', node.data.text);
-            }
+            console.log('>>> Dragover on NODE:', node.data.text);
 
             var box = node.getBox();
             this._dragType = this._getDragType(node, x, y);
