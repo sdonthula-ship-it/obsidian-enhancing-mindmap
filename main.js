@@ -179,6 +179,8 @@ var en = {
     'Join as citation with the node below': 'Join as citation with the node below',
     'Center mindmap view on the current node': 'Center mindmap view on the current node',
     'Center mindmap view': 'Center mindmap view',
+    'Zoom in': 'Zoom in',
+    'Zoom out': 'Zoom out',
     'Display the node\'s info in console': 'Display the node\'s info in console',
     "Export to html": "Export to html",
     "Export to PNG": "Export to PNG",
@@ -2069,17 +2071,35 @@ class Layout {
                         color: _stroke,
                         width: lineWidth + 1,
                         linecap: 'round',
-                        linejoin: 'round'
-                    }).fill('none');
+                        linejoin: 'round',
+                        opacity: 0.8
+                    }).fill('none').addClass('mm-connection-line mm-connection-root');
                 }
                 else {
                     var line1 = me.svgDom.path().stroke({
                         color: _stroke,
                         width: lineWidth,
                         linecap: 'round',
-                        linejoin: 'round'
-                    }).fill('none');
+                        linejoin: 'round',
+                        opacity: 0.7
+                    }).fill('none').addClass('mm-connection-line');
                 }
+                // Add hover effect
+                line1.node.addEventListener('mouseenter', function () {
+                    line1.stroke({ width: lineWidth + 2, opacity: 1 });
+                    child.containEl.classList.add('mm-node-highlight');
+                    node.containEl.classList.add('mm-node-highlight');
+                });
+                line1.node.addEventListener('mouseleave', function () {
+                    if (level == rootLevel) {
+                        line1.stroke({ width: lineWidth + 1, opacity: 0.8 });
+                    }
+                    else {
+                        line1.stroke({ width: lineWidth, opacity: 0.7 });
+                    }
+                    child.containEl.classList.remove('mm-node-highlight');
+                    node.containEl.classList.remove('mm-node-highlight');
+                });
                 if (lineWidth % 2 == 1) {
                     var x11 = parseInt(childPos.x + '') - 0.5;
                     var x22 = parseInt(childPos.x + childBox.width + '') - 0.5;
@@ -2101,12 +2121,20 @@ class Layout {
                     line1.plot(pathStr);
                 }
                 else {
-                    me.svgDom.line(x11, y11, x22, y22).stroke({
+                    var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
                         color: _stroke,
                         width: lineWidth,
                         linecap: 'miter',
-                        linejoin: 'miter'
-                    }).fill('none');
+                        linejoin: 'miter',
+                        opacity: 0.6
+                    }).fill('none').addClass('mm-connection-line-horizontal');
+                    // Add hover effect for horizontal line
+                    horizontalLine.node.addEventListener('mouseenter', function () {
+                        horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
+                    });
+                    horizontalLine.node.addEventListener('mouseleave', function () {
+                        horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
+                    });
                     //var c = parseInt((to.y - from.y) / 6+'');
                     var cpx11 = {
                         x: from.x + dis / 2,
@@ -40410,6 +40438,42 @@ class MindMapPlugin extends obsidian.Plugin {
                     if (mindmapView) {
                         var mindmap = mindmapView.mindmap;
                         mindmap.center();
+                    }
+                }
+            });
+            // Zoom in
+            this.addCommand({
+                id: 'Zoom in',
+                name: `${t('Zoom in')}`,
+                hotkeys: [
+                    {
+                        modifiers: ['Alt'],
+                        key: '=',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setScale("up");
+                    }
+                }
+            });
+            // Zoom out
+            this.addCommand({
+                id: 'Zoom out',
+                name: `${t('Zoom out')}`,
+                hotkeys: [
+                    {
+                        modifiers: ['Alt'],
+                        key: '-',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        mindmap.setScale("down");
                     }
                 }
             });

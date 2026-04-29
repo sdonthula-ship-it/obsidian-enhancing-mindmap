@@ -510,16 +510,34 @@ export default class Layout {
 						color: _stroke,
 						width: lineWidth + 1,
 						linecap: 'round',
-						linejoin: 'round'
-					}).fill('none');
+						linejoin: 'round',
+						opacity: 0.8
+					}).fill('none').addClass('mm-connection-line mm-connection-root');
 				} else {
 					var line1 = me.svgDom.path().stroke({
 						color: _stroke,
 						width: lineWidth,
 						linecap: 'round',
-						linejoin: 'round'
-					}).fill('none');
+						linejoin: 'round',
+						opacity: 0.7
+					}).fill('none').addClass('mm-connection-line');
 				}
+
+				// Add hover effect
+				line1.node.addEventListener('mouseenter', function() {
+					line1.stroke({ width: lineWidth + 2, opacity: 1 });
+					child.containEl.classList.add('mm-node-highlight');
+					node.containEl.classList.add('mm-node-highlight');
+				});
+				line1.node.addEventListener('mouseleave', function() {
+					if (level == rootLevel) {
+						line1.stroke({ width: lineWidth + 1, opacity: 0.8 });
+					} else {
+						line1.stroke({ width: lineWidth, opacity: 0.7 });
+					}
+					child.containEl.classList.remove('mm-node-highlight');
+					node.containEl.classList.remove('mm-node-highlight');
+				});
 
 				if (lineWidth % 2 == 1) {
 					var x11 = parseInt(childPos.x+'') - 0.5;
@@ -547,12 +565,21 @@ export default class Layout {
 
 				} else {
 
-					me.svgDom.line(x11, y11, x22, y22).stroke({
+					var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
 						color: _stroke,
 						width: lineWidth,
 						linecap: 'miter',
-						linejoin: 'miter'
-					}).fill('none');
+						linejoin: 'miter',
+						opacity: 0.6
+					}).fill('none').addClass('mm-connection-line-horizontal');
+
+					// Add hover effect for horizontal line
+					horizontalLine.node.addEventListener('mouseenter', function() {
+						horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
+					});
+					horizontalLine.node.addEventListener('mouseleave', function() {
+						horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
+					});
 
 					//var c = parseInt((to.y - from.y) / 6+'');
 					 var cpx11 = {
