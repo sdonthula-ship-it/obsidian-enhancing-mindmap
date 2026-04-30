@@ -1,26 +1,31 @@
 # Node Overlap Fix + Connection Limitations
 
-## Problem Fixed: Overlapping Nodes
+## ✅ Problem Fixed: Overlapping Nodes
 
 When creating multiple nodes with `Ctrl/Cmd+Enter` at the same cursor position, they were all stacking on top of each other.
 
-## Solution: Auto-Spacing
+## Solution: Smart Collision Detection
 
-Nodes created in the same area (within 50px) now automatically space themselves in a 3-column grid:
+Nodes now use **actual collision detection** to find empty positions:
 
-```
-[Node 1]    [Node 2]    [Node 3]
-[Node 4]    [Node 5]    [Node 6]
-```
+### Algorithm
+1. **Check collision** - Tests if requested position overlaps any existing node
+2. **Find empty space** - If occupied, searches up to 20 nearby positions
+3. **Large spacing** - 300px horizontal, 200px vertical gaps
+4. **Bounding box detection** - Checks actual node dimensions with 80px padding
 
-- **Horizontal spacing:** 180px between columns
-- **Vertical spacing:** 120px between rows
-- **Grid size:** 3 nodes per row
+### Spacing Configuration
+- **Horizontal spacing:** 300px (was 180px)
+- **Vertical spacing:** 200px (was 120px)
+- **Collision padding:** 80px safety margin
+- **Search attempts:** 20 positions before fallback
 
 **How it works:**
-- First node: appears at cursor position
-- Subsequent nodes (if cursor hasn't moved much): automatically offset in grid pattern
-- Move cursor to new area: grid resets to that new position
+- Click anywhere and press `Ctrl/Cmd+Enter`
+- System checks if position is empty
+- If occupied, automatically finds nearest empty spot
+- Node appears with no overlap guaranteed
+- Works for both instant capture and floating node creation
 
 ## Important: Connection Limitations
 
