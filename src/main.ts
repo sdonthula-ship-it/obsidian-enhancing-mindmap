@@ -191,8 +191,15 @@ export default class MindMapPlugin extends Plugin {
             const containerRect = mindmap.containerEL.getBoundingClientRect();
             const scrollX = mindmap.containerEL.scrollLeft;
             const scrollY = mindmap.containerEL.scrollTop;
-            const centerX = scrollX + containerRect.width / 2;
-            const centerY = scrollY + containerRect.height / 2;
+            let centerX = scrollX + containerRect.width / 2;
+            let centerY = scrollY + containerRect.height / 2;
+
+            // Check for collision and find empty spot if needed
+            if (mindmap.checkCollision(centerX, centerY)) {
+              const emptyPos = mindmap.findEmptyPosition(centerX, centerY);
+              centerX = emptyPos.x;
+              centerY = emptyPos.y;
+            }
 
             const floatingNode = mindmap.addFloatingNode(text, centerX, centerY);
             floatingNode.select();

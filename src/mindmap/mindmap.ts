@@ -2422,36 +2422,63 @@ export default class MindMap {
         return {x: canvasX, y: canvasY};
     }
 
+    // Check if a position collides with any existing node
+    checkCollision(x: number, y: number, padding: number = 50): boolean {
+        let collision = false;
+        this.traverseDF((node: INode) => {
+            const pos = node.getPosition();
+            const dim = node.getDimensions();
+
+            // Check bounding box collision with padding
+            if (x < pos.x + dim.x + padding &&
+                x + 200 > pos.x - padding &&  // Assume ~200px width for new node
+                y < pos.y + dim.y + padding &&
+                y + 60 > pos.y - padding) {   // Assume ~60px height for new node
+                collision = true;
+            }
+        });
+        return collision;
+    }
+
+    // Find non-overlapping position for new node
+    findEmptyPosition(startX: number, startY: number): {x: number, y: number} {
+        const spacingX = 300;  // Large horizontal spacing
+        const spacingY = 200;  // Large vertical spacing
+        const maxAttempts = 20;
+
+        // Try grid positions in a spiral pattern
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const ring = Math.floor(Math.sqrt(attempt));
+            const col = (attempt % 4) - 1;  // -1, 0, 1, 2
+            const row = Math.floor(attempt / 4);
+
+            const testX = startX + (col * spacingX);
+            const testY = startY + (row * spacingY);
+
+            if (!this.checkCollision(testX, testY, 80)) {
+                return {x: testX, y: testY};
+            }
+        }
+
+        // If all attempts fail, just offset far to the right
+        return {x: startX + (spacingX * 3), y: startY};
+    }
+
     // Create node at cursor position (instant capture)
     createNodeAtCursor(text: string = '') {
         let coords = this._lastMouseX && this._lastMouseY
             ? this.screenToCanvasCoords(this._lastMouseX, this._lastMouseY)
             : { x: this.setting.canvasSize / 2, y: this.setting.canvasSize / 2 };
 
-        // Auto-space nodes to prevent overlap
-        // If creating near the same position, offset in a grid pattern
-        if (this._lastCreationPosition &&
-            Math.abs(coords.x - this._lastCreationPosition.x) < 50 &&
-            Math.abs(coords.y - this._lastCreationPosition.y) < 50) {
-            // Same area - apply spacing offset
-            const spacing = 180;  // Horizontal spacing
-            const rowHeight = 120;  // Vertical spacing
-            const nodesPerRow = 3;
-
-            const row = Math.floor(this._nodeCreationCount / nodesPerRow);
-            const col = this._nodeCreationCount % nodesPerRow;
-
-            coords = {
-                x: this._lastCreationPosition.x + (col * spacing),
-                y: this._lastCreationPosition.y + (row * rowHeight)
-            };
-
-            this._nodeCreationCount++;
-        } else {
-            // New area - reset counter
-            this._nodeCreationCount = 1;
-            this._lastCreationPosition = {x: coords.x, y: coords.y};
+        // Check if position is empty, if not find an empty spot
+        if (this.checkCollision(coords.x, coords.y)) {
+            console.log('[CREATE] Position occupied, finding empty spot...');
+            coords = this.findEmptyPosition(coords.x, coords.y);
+            console.log('[CREATE] Found empty position at:', coords);
         }
+
+        // Store for next creation
+        this._lastCreationPosition = {x: coords.x, y: coords.y};
 
         // Don't auto-refresh yet - we'll do it after selection
         const node = this.addFloatingNode(text, coords.x, coords.y, false);
