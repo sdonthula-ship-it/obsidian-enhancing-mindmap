@@ -18,6 +18,29 @@ export function keepLastIndex(dom:HTMLElement) {
     // }
 };
 
+// Connection types for many-to-many relationships
+export enum ConnectionType {
+    PARENT_CHILD = 'parent-child',
+    REFERENCE = 'reference',
+    RELATED = 'related',
+    CAUSES = 'causes',
+    CONTRADICTS = 'contradicts',
+    SUPPORTS = 'supports',
+    DEPENDS_ON = 'depends-on',
+    SIMILAR_TO = 'similar-to',
+    CUSTOM = 'custom'
+}
+
+export interface IConnection {
+    id: string;                    // Unique connection ID
+    sourceId: string;              // Source node ID
+    targetId: string;              // Target node ID
+    type: ConnectionType;          // Connection type
+    label?: string;                // Optional label
+    bidirectional?: boolean;       // Two-way connection
+    metadata?: Record<string, any>; // Additional data
+}
+
 interface INode {
     id: string;
     text: string;
@@ -47,6 +70,10 @@ export class INodeData implements INode{
     children?:INodeData[]
     expanded?:boolean;
     isEdit?:boolean;
+    isFloating?:boolean;      // Node has custom position (not calculated by layout)
+    floatingX?:number;        // Custom X position
+    floatingY?:number;        // Custom Y position
+    connections?:IConnection[]; // Many-to-many connections (graph mode)
 }
 
 export default class Node {
@@ -89,6 +116,7 @@ export default class Node {
         this.containEl.setAttribute('tabIndex','-1');
         this.containEl.setAttribute('data-id',this.data.id);
         this.containEl.setAttribute('draggable','false'); // Only draggable when selected
+        this.containEl.setAttribute('data-text', this.data.text); // For graph mode label
 
         this.contentEl = document.createElement('div');
         this.contentEl.classList.add('mm-node-content');
@@ -587,6 +615,10 @@ export default class Node {
 
     refreshBox(){
         this.box = this.getDomBox();
+        // Update collapse indicator when box refreshes
+        if (this.children.length > 0) {
+            this.updateCollapseIndicator();
+        }
     }
 
     getBox(){
@@ -779,6 +811,7 @@ export default class Node {
 
     setText(text:string) {
         this.data.text = text;
+        this.containEl.setAttribute('data-text', text); // Update graph mode label
         this.contentEl.innerHTML='';
         this.parseText();
     }
@@ -808,6 +841,7 @@ export default class Node {
         if(this.containEl.classList.contains('mm-node-collapse')){
             this.containEl.classList.remove('mm-node-collapse')
         }
+        this.updateCollapseIndicator();
     }
 
     collapse(){
@@ -829,6 +863,153 @@ export default class Node {
         if(!this.containEl.classList.contains('mm-node-collapse')){
             this.containEl.classList.add('mm-node-collapse')
         }
+        this.updateCollapseIndicator();
+    }
+
+    // Update collapse indicator with child count
+    updateCollapseIndicator() {
+        if (!this._barDom) return;
+
+        if (this.children.length > 0) {
+            // Count total descendants (not just direct children)
+            let totalCount = 0;
+            const countDescendants = (node: any) => {
+                totalCount += node.children.length;
+                node.children.forEach((child: any) => countDescendants(child));
+            };
+            countDescendants(this);
+
+            if (!this.isExpand) {
+                // Collapsed - show count
+                this._barDom.setAttribute('data-count', totalCount.toString());
+                this._barDom.style.display = 'block';
+            } else {
+                // Expanded - hide count but keep bar visible
+                this._barDom.removeAttribute('data-count');
+                this._barDom.style.display = 'block';
+            }
+        } else {
+            // No children - hide bar
+            this._barDom.style.display = 'none';
+        }
+    }
+
+    // ========== CONNECTION MANAGEMENT (Many-to-Many Graph Support) ==========
+
+    // Initialize connections array if needed
+    private ensureConnections() {
+        if (!this.data.connections) {
+            this.data.connections = [];
+        }
+    }
+
+    // Add a connection from this node to another
+    addConnection(targetNodeId: string, type: ConnectionType = ConnectionType.REFERENCE, label?: string, bidirectional: boolean = false): IConnection {
+        this.ensureConnections();
+
+        // Check if connection already exists
+        const existing = this.data.connections.find(c =>
+            c.targetId === targetNodeId && c.type === type
+        );
+        if (existing) {
+            return existing;
+        }
+
+        const connection: IConnection = {
+            id: `conn-${this.getId()}-${targetNodeId}-${Date.now()}`,
+            sourceId: this.getId(),
+            targetId: targetNodeId,
+            type: type,
+            label: label,
+            bidirectional: bidirectional
+        };
+
+        this.data.connections.push(connection);
+        return connection;
+    }
+
+    // Remove a specific connection
+    removeConnection(connectionId: string): boolean {
+        if (!this.data.connections) return false;
+
+        const index = this.data.connections.findIndex(c => c.id === connectionId);
+        if (index !== -1) {
+            this.data.connections.splice(index, 1);
+            return true;
+        }
+        return false;
+    }
+
+    // Remove all connections to a specific target
+    removeConnectionsTo(targetNodeId: string): number {
+        if (!this.data.connections) return 0;
+
+        const originalLength = this.data.connections.length;
+        this.data.connections = this.data.connections.filter(c => c.targetId !== targetNodeId);
+        return originalLength - this.data.connections.length;
+    }
+
+    // Get all connections from this node
+    getConnections(): IConnection[] {
+        return this.data.connections || [];
+    }
+
+    // Get connections of a specific type
+    getConnectionsByType(type: ConnectionType): IConnection[] {
+        if (!this.data.connections) return [];
+        return this.data.connections.filter(c => c.type === type);
+    }
+
+    // Get all nodes this node connects to (by ID)
+    getConnectedNodeIds(): string[] {
+        if (!this.data.connections) return [];
+        return this.data.connections.map(c => c.targetId);
+    }
+
+    // Check if connected to a specific node
+    isConnectedTo(targetNodeId: string): boolean {
+        if (!this.data.connections) return false;
+        return this.data.connections.some(c => c.targetId === targetNodeId);
+    }
+
+    // Get connection to a specific node
+    getConnectionTo(targetNodeId: string): IConnection | undefined {
+        if (!this.data.connections) return undefined;
+        return this.data.connections.find(c => c.targetId === targetNodeId);
+    }
+
+    // Update connection label
+    setConnectionLabel(connectionId: string, label: string): boolean {
+        if (!this.data.connections) return false;
+
+        const connection = this.data.connections.find(c => c.id === connectionId);
+        if (connection) {
+            connection.label = label;
+            return true;
+        }
+        return false;
+    }
+
+    // Update connection type
+    setConnectionType(connectionId: string, type: ConnectionType): boolean {
+        if (!this.data.connections) return false;
+
+        const connection = this.data.connections.find(c => c.id === connectionId);
+        if (connection) {
+            connection.type = type;
+            return true;
+        }
+        return false;
+    }
+
+    // Get count of all connections
+    getConnectionCount(): number {
+        return this.data.connections ? this.data.connections.length : 0;
+    }
+
+    // Clear all connections
+    clearConnections() {
+        this.data.connections = [];
     }
 
 

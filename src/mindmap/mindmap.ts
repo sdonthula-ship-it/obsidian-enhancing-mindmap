@@ -82,6 +82,9 @@ export default class MindMap {
     selectedNodes: INode[] = [];  // Multi-select support
     _nodeCreationCount: number = 0;  // Counter for auto-spacing created nodes
     _lastCreationPosition: {x: number, y: number} = null;  // Last node creation position
+    connectionGroup: any;  // SVG group for non-hierarchical connections
+    _connectionMode: boolean = false;  // Whether in connection creation mode
+    _connectionSourceNode: INode = null;  // Source node when creating connection
 
     constructor(data: INodeData, containerEL: HTMLElement, setting?: Setting) {
         this.setting = Object.assign({
@@ -145,8 +148,11 @@ export default class MindMap {
         //history
         this.exec = new Exec();
 
-        // link line
+        // link line (hierarchical tree connections)
         this.edgeGroup = this.draw.group();
+
+        // connection group (many-to-many graph connections)
+        this.connectionGroup = this.draw.group();
 
         this.appClickFn = this.appClickFn.bind(this);
         this.appDragstart = this.appDragstart.bind(this);
@@ -621,6 +627,12 @@ export default class MindMap {
             if (keyCode == 27) {
                 e.preventDefault();
                 e.stopPropagation();
+
+                // Exit connection mode if active
+                if (this._connectionMode) {
+                    this.exitConnectionMode();
+                    return;
+                }
 
                 var node = this.selectNode;
                 if (node && node.data.isEdit) {
@@ -1659,6 +1671,13 @@ export default class MindMap {
                     }
                     console.log('[CLICK] Multi-select:', this.selectedNodes.length, 'nodes selected');
                 } else {
+                    // Check if we're in connection creation mode
+                    if (this._connectionMode) {
+                        console.log('[CONNECTION] Creating connection to target node');
+                        this.handleConnectionModeClick(node);
+                        return;
+                    }
+
                     // Normal click - single select
                     if (!node.isSelect) {
                         console.log('[CLICK] Selecting node');
@@ -2775,8 +2794,10 @@ export default class MindMap {
             this.centerOnNode(this.root);
             // Restore floating positions after initial layout
             this.restoreFloatingPositions();
-            // Redraw connections after floating positions are applied
+            // Redraw hierarchical tree connections
             this.mmLayout.createLink();
+            // Draw many-to-many graph connections
+            this.renderConnections();
             return;
         }
 
@@ -2785,8 +2806,11 @@ export default class MindMap {
         // After layout calculation, restore floating node positions
         this.restoreFloatingPositions();
 
-        // Redraw connection lines now that nodes are in their final positions
+        // Redraw hierarchical tree connection lines now that nodes are in their final positions
         this.mmLayout.createLink();
+
+        // Draw many-to-many graph connections on top
+        this.renderConnections();
     }
 
     // Restore custom positions for floating nodes (overrides layout calculation)
@@ -3150,5 +3174,233 @@ export default class MindMap {
         }
 
   }
+
+    // ========== CONNECTION MANAGEMENT (Many-to-Many Graph Support) ==========
+
+    // Find node by ID across all roots
+    findNodeById(nodeId: string): INode | null {
+        let found: INode | null = null;
+
+        this.traverseDF((node: INode) => {
+            if (node.getId() === nodeId) {
+                found = node;
+                return false; // Stop traversal
+            }
+        });
+
+        return found;
+    }
+
+    // Create a connection between two nodes
+    createConnection(sourceNodeId: string, targetNodeId: string, type: import('./INode').ConnectionType, label?: string, bidirectional: boolean = false) {
+        const sourceNode = this.findNodeById(sourceNodeId);
+        const targetNode = this.findNodeById(targetNodeId);
+
+        if (!sourceNode || !targetNode) {
+            new Notice('Cannot create connection: node not found');
+            return null;
+        }
+
+        // Add connection to source node
+        const connection = sourceNode.addConnection(targetNodeId, type, label, bidirectional);
+
+        // If bidirectional, add reverse connection
+        if (bidirectional) {
+            targetNode.addConnection(sourceNodeId, type, label, true);
+        }
+
+        // Redraw connections
+        this.refresh();
+        this.mindMapChange();
+
+        new Notice(`Connection created: ${type}`);
+        return connection;
+    }
+
+    // Remove a connection
+    removeConnection(connectionId: string) {
+        let removed = false;
+
+        this.traverseDF((node: INode) => {
+            if (node.removeConnection(connectionId)) {
+                removed = true;
+                return false; // Stop traversal
+            }
+        });
+
+        if (removed) {
+            this.refresh();
+            this.mindMapChange();
+            new Notice('Connection removed');
+        }
+
+        return removed;
+    }
+
+    // Remove all connections between two nodes
+    removeConnectionsBetween(nodeId1: string, nodeId2: string) {
+        const node1 = this.findNodeById(nodeId1);
+        const node2 = this.findNodeById(nodeId2);
+
+        if (!node1 || !node2) return 0;
+
+        let count = 0;
+        count += node1.removeConnectionsTo(nodeId2);
+        count += node2.removeConnectionsTo(nodeId1);
+
+        if (count > 0) {
+            this.refresh();
+            this.mindMapChange();
+            new Notice(`${count} connection(s) removed`);
+        }
+
+        return count;
+    }
+
+    // Draw all non-hierarchical connections
+    renderConnections() {
+        if (!this.connectionGroup) return;
+
+        // Clear existing connection lines
+        this.connectionGroup.clear();
+
+        // Iterate through all nodes and draw their connections
+        this.traverseDF((node: INode) => {
+            const connections = node.getConnections();
+
+            connections.forEach(conn => {
+                const targetNode = this.findNodeById(conn.targetId);
+                if (!targetNode) return;
+
+                // Get positions
+                const sourcePos = node.getPosition();
+                const sourceDim = node.getDimensions();
+                const targetPos = targetNode.getPosition();
+                const targetDim = targetNode.getDimensions();
+
+                // Calculate center points
+                const x1 = sourcePos.x + sourceDim.x / 2;
+                const y1 = sourcePos.y + sourceDim.y / 2;
+                const x2 = targetPos.x + targetDim.x / 2;
+                const y2 = targetPos.y + targetDim.y / 2;
+
+                // Draw connection line
+                const color = this.getConnectionColor(conn.type);
+                const line = this.connectionGroup.line(x1, y1, x2, y2)
+                    .stroke({
+                        width: 2,
+                        color: color,
+                        opacity: 0.6,
+                        dasharray: this.getConnectionDash(conn.type)
+                    })
+                    .addClass('mm-connection-line')
+                    .attr('data-connection-id', conn.id)
+                    .attr('data-connection-type', conn.type);
+
+                // Add arrow marker if not bidirectional
+                if (!conn.bidirectional) {
+                    line.marker('end', 8, 8, function(add: any) {
+                        add.polygon('0,0 8,4 0,8').fill(color);
+                    });
+                }
+
+                // Add label if exists
+                if (conn.label) {
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+                    this.connectionGroup.text(conn.label)
+                        .move(midX, midY)
+                        .font({ size: 12, fill: color })
+                        .addClass('mm-connection-label');
+                }
+
+                // Make clickable for editing/deletion
+                line.node.style.cursor = 'pointer';
+                line.node.addEventListener('click', (e: MouseEvent) => {
+                    e.stopPropagation();
+                    this.handleConnectionClick(conn);
+                });
+            });
+        });
+    }
+
+    // Get color for connection type
+    getConnectionColor(type: import('./INode').ConnectionType): string {
+        const colors: Record<string, string> = {
+            'parent-child': '#666',
+            'reference': '#4a9eff',
+            'related': '#9b59b6',
+            'causes': '#e74c3c',
+            'contradicts': '#c0392b',
+            'supports': '#27ae60',
+            'depends-on': '#f39c12',
+            'similar-to': '#16a085',
+            'custom': '#95a5a6'
+        };
+        return colors[type] || '#666';
+    }
+
+    // Get dash pattern for connection type
+    getConnectionDash(type: import('./INode').ConnectionType): string {
+        if (type === 'reference' || type === 'related') {
+            return '5,5'; // Dashed for non-structural connections
+        }
+        return ''; // Solid line
+    }
+
+    // Handle connection click (for editing/deletion)
+    handleConnectionClick(connection: import('./INode').IConnection) {
+        // Show context menu for connection
+        console.log('Connection clicked:', connection);
+
+        // For now, just allow deletion
+        if (confirm(`Delete this ${connection.type} connection?`)) {
+            this.removeConnection(connection.id);
+        }
+    }
+
+    // Enter connection creation mode
+    startConnectionMode(sourceNode: INode) {
+        this._connectionMode = true;
+        this._connectionSourceNode = sourceNode;
+        this.appEl.style.cursor = 'crosshair';
+
+        // Visual feedback
+        sourceNode.containEl.classList.add('mm-connection-source');
+        new Notice('Click target node to create connection. Press ESC to cancel.');
+    }
+
+    // Exit connection mode
+    exitConnectionMode() {
+        this._connectionMode = false;
+        if (this._connectionSourceNode) {
+            this._connectionSourceNode.containEl.classList.remove('mm-connection-source');
+        }
+        this._connectionSourceNode = null;
+        this.appEl.style.cursor = '';
+    }
+
+    // Handle node click in connection mode
+    handleConnectionModeClick(targetNode: INode) {
+        if (!this._connectionMode || !this._connectionSourceNode) return;
+
+        if (this._connectionSourceNode === targetNode) {
+            new Notice('Cannot connect node to itself');
+            this.exitConnectionMode();
+            return;
+        }
+
+        // For now, create a reference connection (can make this configurable)
+        const ConnectionType = require('./INode').ConnectionType;
+        this.createConnection(
+            this._connectionSourceNode.getId(),
+            targetNode.getId(),
+            ConnectionType.REFERENCE,
+            undefined,
+            false
+        );
+
+        this.exitConnectionMode();
+    }
 
 }

@@ -818,3 +818,72 @@
   z-index: 1000;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
+
+/* ================================================== */
+/* CONNECTION MODE - Many-to-Many Graph Connections  */
+/* ================================================== */
+
+/* Connection source node indicator */
+.mm-node.mm-connection-source .mm-node-content {
+  border: 3px dashed var(--interactive-accent);
+  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.2),
+              0 0 16px rgba(var(--interactive-accent-rgb), 0.4);
+  animation: connection-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes connection-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.2),
+                0 0 16px rgba(var(--interactive-accent-rgb), 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(var(--interactive-accent-rgb), 0.3),
+                0 0 24px rgba(var(--interactive-accent-rgb), 0.6);
+  }
+}
+
+/* Connection lines (many-to-many graph edges) */
+.mm-connection-line {
+  pointer-events: all;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mm-connection-line:hover {
+  stroke-width: 3px !important;
+  opacity: 0.9 !important;
+}
+
+/* Connection labels */
+.mm-connection-label {
+  pointer-events: none;
+  user-select: none;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  background: var(--background-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Connection type styling */
+path[data-connection-type="reference"] {
+  stroke-dasharray: 5,5;
+}
+
+path[data-connection-type="related"] {
+  stroke-dasharray: 5,5;
+}
+
+path[data-connection-type="causes"] {
+  stroke-width: 2.5px;
+}
+
+path[data-connection-type="contradicts"] {
+  stroke-width: 2.5px;
+}
+
+/* Node hover in connection mode */
+.mm-mindmap[style*="crosshair"] .mm-node:hover .mm-node-content {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.3);
+}

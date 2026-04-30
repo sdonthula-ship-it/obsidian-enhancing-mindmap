@@ -4,7 +4,10 @@ import {
   TFile,
   TFolder,
   ViewState,
-  MarkdownView
+  MarkdownView,
+  Modal,
+  Setting,
+  Notice
 } from 'obsidian';
 // import DEFAULT_SETTINGS from './setting'
 import { around } from 'monkey-around'
@@ -12,9 +15,78 @@ import { MindMapSettings } from './settings';
 import { MindMapSettingsTab } from './settingTab'
 
 import { MindMapView, mindmapViewType } from "./MindMapView";
+import INode from './mindmap/INode';
 import { frontMatterKey, basicFrontmatter } from './constants';
 import { t } from './lang/helpers'
 
+// Text Input Modal for floating node creation
+class TextInputModal extends Modal {
+  result: string;
+  onSubmit: (result: string) => void;
+  placeholder: string;
+
+  constructor(app: any, placeholder: string, onSubmit: (result: string) => void) {
+    super(app);
+    this.placeholder = placeholder;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+
+    contentEl.createEl("h3", { text: "Create Floating Node" });
+
+    new Setting(contentEl)
+      .setName("Node text")
+      .addText((text) =>
+        text
+          .setPlaceholder(this.placeholder)
+          .onChange((value) => {
+            this.result = value;
+          })
+          .inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              this.close();
+              if (this.result && this.result.trim()) {
+                this.onSubmit(this.result.trim());
+              }
+            }
+          })
+      );
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn
+          .setButtonText("Create")
+          .setCta()
+          .onClick(() => {
+            this.close();
+            if (this.result && this.result.trim()) {
+              this.onSubmit(this.result.trim());
+            }
+          }))
+      .addButton((btn) =>
+        btn
+          .setButtonText("Cancel")
+          .onClick(() => {
+            this.close();
+          }));
+
+    // Focus the input field
+    setTimeout(() => {
+      const inputEl = contentEl.querySelector('input');
+      if (inputEl) {
+        inputEl.focus();
+      }
+    }, 10);
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+  }
+}
 
 export default class MindMapPlugin extends Plugin {
   settings: MindMapSettings;
@@ -43,6 +115,222 @@ export default class MindMapPlugin extends Plugin {
           return true;
         }
         return false;
+      }
+    });
+
+    // Add New Root Node
+    this.addCommand({
+      id: 'Add new root node',
+      name: 'Add new root node (multi-map)',
+      hotkeys: [
+        {
+          modifiers: ['Alt', 'Shift'],
+          key: 'N',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          var mindmap = mindmapView.mindmap;
+          const newRoot = mindmap.addNewRoot();
+          newRoot.select();
+          mindmap.selectNode = newRoot;
+          mindmap.center();
+        }
+      }
+    });
+
+    // Toggle Drag Mode
+    this.addCommand({
+      id: 'Toggle drag mode',
+      name: 'Toggle between Position and Reparent drag modes',
+      hotkeys: [
+        {
+          modifiers: ['Ctrl', 'Shift'],
+          key: 'D',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          var mindmap = mindmapView.mindmap;
+          // Toggle the drag mode flag
+          mindmap._forcedReparentMode = !mindmap._forcedReparentMode;
+
+          // Update visual indicator
+          if (mindmap._forcedReparentMode) {
+            mindmap.appEl.classList.add('mm-reparent-mode');
+          } else {
+            mindmap.appEl.classList.remove('mm-reparent-mode');
+          }
+
+          const mode = mindmap._forcedReparentMode ? 'REPARENT' : 'POSITION';
+          new Notice(`Drag mode: ${mode} - ${mindmap._forcedReparentMode ? 'Drag to change parent-child relationships' : 'Drag to move nodes freely'}`, 3000);
+        }
+      }
+    });
+
+    // Quick Add Floating Node
+    this.addCommand({
+      id: 'Quick add floating node',
+      name: 'Quick add floating node',
+      hotkeys: [
+        {
+          modifiers: ['Alt', 'Shift'],
+          key: 'F',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          // Show modal for text input
+          new TextInputModal(this.app, 'Enter node text...', (text) => {
+            var mindmap = mindmapView.mindmap;
+
+            // Calculate position at viewport center
+            const containerRect = mindmap.containerEL.getBoundingClientRect();
+            const scrollX = mindmap.containerEL.scrollLeft;
+            const scrollY = mindmap.containerEL.scrollTop;
+            const centerX = scrollX + containerRect.width / 2;
+            const centerY = scrollY + containerRect.height / 2;
+
+            const floatingNode = mindmap.addFloatingNode(text, centerX, centerY);
+            floatingNode.select();
+            mindmap.selectNode = floatingNode;
+          }).open();
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'instant-node-capture',
+      name: 'Quick capture thought (create node at cursor)',
+      hotkeys: [
+        {
+          modifiers: ['Mod'],
+          key: 'Enter',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          const mindmap = mindmapView.mindmap;
+          mindmap.createNodeAtCursor();
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'edit-selected-node',
+      name: 'Edit selected node',
+      hotkeys: [
+        {
+          modifiers: [],
+          key: 'e',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView && mindmapView.mindmap.selectNode){
+          mindmapView.mindmap.selectNode.edit();
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'center-on-selected',
+      name: 'Center view on selected node',
+      hotkeys: [
+        {
+          modifiers: [],
+          key: 'c',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView && mindmapView.mindmap.selectNode){
+          mindmapView.mindmap.centerOnNode(mindmapView.mindmap.selectNode);
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'toggle-collapse-selected',
+      name: 'Toggle collapse/expand selected node',
+      hotkeys: [
+        {
+          modifiers: [],
+          key: ' ',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView && mindmapView.mindmap.selectNode){
+          const node = mindmapView.mindmap.selectNode;
+          if(node.isExpand){
+            node.collapse();
+          } else {
+            node.expand();
+          }
+          mindmapView.mindmap.refresh();
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'deselect-all',
+      name: 'Clear selection',
+      hotkeys: [
+        {
+          modifiers: [],
+          key: 'Escape',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          mindmapView.mindmap.clearSelectNode();
+        }
+      }
+    });
+
+    this.addCommand({
+      id: 'reset-layout',
+      name: 'Reset mind map layout',
+      hotkeys: [
+        {
+          modifiers: ['Alt', 'Shift'],
+          key: 'r',
+        },
+      ],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if(mindmapView){
+          var mindmap = mindmapView.mindmap;
+
+          // Clear all floating positions
+          mindmap.traverseDF((node: INode) => {
+            if (node.data.isFloating && !node.parent) {
+              // Remove orphaned floating nodes from roots
+              const index = mindmap.roots.indexOf(node);
+              if (index > -1) {
+                mindmap.roots.splice(index, 1);
+                mindmap.contentEL.removeChild(node.containEl);
+              }
+            } else {
+              // Clear floating state from connected nodes
+              node.data.isFloating = false;
+              delete node.data.floatingX;
+              delete node.data.floatingY;
+            }
+          });
+
+          // Refresh layout
+          mindmap.refresh();
+          mindmap.mindMapChange();
+
+          new Notice('Layout reset - all custom positions cleared');
+        }
       }
     });
 
@@ -1202,6 +1490,24 @@ export default class MindMapPlugin extends Plugin {
 • Drop on top/bottom: add as sibling
 • Drop on left/right: add as child
 • Ctrl+Drag: copy instead of move`, 10000);
+      }
+    });
+
+    // Create connection between nodes
+    this.addCommand({
+      id: 'create-node-connection',
+      name: 'Create connection from selected node',
+      hotkeys: [{ modifiers: ['Mod'], key: 'l' }],
+      callback: () => {
+        const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        if (mindmapView && mindmapView.mindmap) {
+          const mindmap = mindmapView.mindmap;
+          if (mindmap.selectNode) {
+            mindmap.startConnectionMode(mindmap.selectNode);
+          } else {
+            new Notice('Please select a source node first');
+          }
+        }
       }
     });
 
