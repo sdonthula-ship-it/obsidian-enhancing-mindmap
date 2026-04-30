@@ -25,11 +25,13 @@ interface Setting {
     headLevel: number,
     layoutDirect: string,
     strokeArray?:any[],
-    focusOnMove?: boolean
+    focusOnMove?: boolean,
+    graphMode?: boolean
 }
 
 export default class MindMap {
     root: INode;
+    roots: INode[] = []; // Support multiple root nodes
     status: string;
     appEl: HTMLElement;
     contentEL: HTMLElement;
@@ -68,6 +70,18 @@ export default class MindMap {
     dispLevel:number;
     isComposing = false;
     isFocused = true;
+    _nodeDragMode: boolean = false;
+    _currentDropTarget: INode = null;
+    _isReparentDrag: boolean = false;  // Alt+drag for reparenting vs normal drag for positioning
+    _dragStartPos: {x: number, y: number} = null;  // Original position of dragged node
+    _rafId: number = null;  // RequestAnimationFrame ID for throttling refresh during drag
+    _forcedReparentMode: boolean = false;  // Manual toggle for reparent mode (Ctrl+Shift+D)
+    _autoReparentFloating: boolean = false;  // Floating nodes auto-enter reparent mode
+    _lastMouseX: number = 0;  // Track last mouse position for instant node creation
+    _lastMouseY: number = 0;
+    selectedNodes: INode[] = [];  // Multi-select support
+    _nodeCreationCount: number = 0;  // Counter for auto-spacing created nodes
+    _lastCreationPosition: {x: number, y: number} = null;  // Last node creation position
 
     constructor(data: INodeData, containerEL: HTMLElement, setting?: Setting) {
         this.setting = Object.assign({
@@ -89,6 +103,11 @@ export default class MindMap {
         this.appEl.classList.add('mm-mindmap');
         this.appEl.classList.add(`mm-theme-${this.setting.theme}`);
         this.appEl.style.overflow = "auto";
+
+        // Apply graph mode class if enabled
+        if (this.setting.graphMode) {
+            this.appEl.classList.add('mm-graph-mode');
+        }
 
 
         this.contentEL = document.createElement('div');
@@ -184,24 +203,25 @@ export default class MindMap {
     init(collapsedIds?: string[]) {
         var that = this;
         var data = this.data;
-        var x = this.setting.canvasSize / 2 - 60;
-        var y = this.setting.canvasSize / 2 - 200;
         var waitCollapseNodes:INode[]=[];
 
-        function initNode(d: INodeData, isRoot: boolean, p?: INode) {
+        // Calculate positions for multiple roots
+        const rootSpacing = 800; // Horizontal spacing between roots
+        const startX = this.setting.canvasSize / 2 - 60;
+        const startY = this.setting.canvasSize / 2 - 200;
+
+        function initNode(d: INodeData, isRoot: boolean, rootIndex: number, p?: INode) {
             that._nodeNum++;
             var n = new INode(d, that);
-            // if (collapsedIds && collapsedIds.includes(n.getId())) {
-            //     n.isExpand = false;
-            // }
-            // if (p && (!p.isExpand || p.isHide)) {
-            //     n.isHide = true;
-            // }
 
             that.contentEL.appendChild(n.containEl);
             if (isRoot) {
+                // Position roots horizontally spaced apart
+                const x = startX + (rootIndex * rootSpacing);
+                const y = startY;
                 n.setPosition(x, y);
-                that.root = n;
+                that.root = n; // Keep backward compatibility - points to first root
+                that.roots.push(n);
                 n.data.isRoot = true;
             } else {
                 n.setPosition(0, 0);
@@ -217,11 +237,13 @@ export default class MindMap {
             n.refreshBox();
             if (d.children && d.children.length) {
                 d.children.forEach((dd: INodeData) => {
-                    initNode(dd, false, n);
+                    initNode(dd, false, rootIndex, n);
                 });
             }
         }
-        initNode(data, true);
+
+        // Initialize the main root
+        initNode(data, true, 0);
 
         if(waitCollapseNodes.length){
             waitCollapseNodes.forEach(n=>{
@@ -231,15 +253,32 @@ export default class MindMap {
     }
 
     traverseBF(callback: Function, node?: INode) {
-        var array = [];
-        array.push(node || this.root);
-        var currentNode = array.shift();
-        while (currentNode) {
-            for (let i = 0, len = currentNode.children.length; i < len; i++) {
-                array.push(currentNode.children[i]);
+        if (node) {
+            // Traverse from specific node
+            var array = [];
+            array.push(node);
+            var currentNode = array.shift();
+            while (currentNode) {
+                for (let i = 0, len = currentNode.children.length; i < len; i++) {
+                    array.push(currentNode.children[i]);
+                }
+                callback(currentNode);
+                currentNode = array.shift();
             }
-            callback(currentNode);
-            currentNode = array.shift();
+        } else {
+            // Traverse all roots
+            this.roots.forEach(root => {
+                var array = [];
+                array.push(root);
+                var currentNode = array.shift();
+                while (currentNode) {
+                    for (let i = 0, len = currentNode.children.length; i < len; i++) {
+                        array.push(currentNode.children[i]);
+                    }
+                    callback(currentNode);
+                    currentNode = array.shift();
+                }
+            });
         }
     }
 
@@ -259,8 +298,12 @@ export default class MindMap {
                 }
             }
         }
-        recurse(node || this.root);
-
+        if (node) {
+            recurse(node);
+        } else {
+            // Traverse all roots
+            this.roots.forEach(root => recurse(root));
+        }
     }
 
     getNodeById(id: string) {
@@ -286,6 +329,10 @@ export default class MindMap {
             }
             this.editNode = null;
         }
+
+        // Clear multi-select
+        this.selectedNodes.forEach(node => node.unSelect());
+        this.selectedNodes = [];
 
         // if(this.selectingNodes)
         // {// Add the node to the selectedNodes
@@ -1537,11 +1584,14 @@ export default class MindMap {
                 }
             }
 
-            if (targetEl.hasClass('mm-node-bar')) {
+            if (targetEl.hasClass('mm-node-bar') || targetEl.closest('.mm-node-bar')) {
                 evt.preventDefault();
                 evt.stopPropagation();
-                var id = targetEl.closest('.mm-node').getAttribute('data-id');
+                const barEl = targetEl.hasClass('mm-node-bar') ? targetEl : targetEl.closest('.mm-node-bar');
+                var id = barEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+
+                console.log('[COLLAPSE] Toggle collapse for:', node.data.text, 'isExpand:', node.isExpand);
 
                 if (node.isExpand) {
                     node.mindmap.execute('collapseNode', {
@@ -1577,17 +1627,55 @@ export default class MindMap {
             if (targetEl.closest('.mm-node')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
-                if (!node.isSelect) {
-                    this.clearSelectNode();
-                    this.selectNode = node;
-                    this.selectNode?.select();
-                    // this._menuDom.style.display='block';
-                    this._menuDom.style.display='none';
-                    var box = this.selectNode.getBox();
-                    // this._menuDom.style.left = `${box.x + box.width + 10}px`;
-                    // this._menuDom.style.top = `${box.y + box.height/2 - 14}px`;
+
+                console.log('[CLICK] Node clicked:', {
+                    nodeText: node.data.text,
+                    isRoot: node.data.isRoot,
+                    isSelected: node.isSelect,
+                    shiftKey: evt.shiftKey
+                });
+
+                // Shift-click for multi-select
+                if (evt.shiftKey) {
+                    if (node.isSelect) {
+                        // Deselect if already selected
+                        const index = this.selectedNodes.indexOf(node);
+                        if (index > -1) {
+                            this.selectedNodes.splice(index, 1);
+                        }
+                        node.unSelect();
+                        if (this.selectedNodes.length > 0) {
+                            this.selectNode = this.selectedNodes[0];
+                        } else {
+                            this.selectNode = null;
+                        }
+                    } else {
+                        // Add to selection
+                        if (!this.selectedNodes.includes(node)) {
+                            this.selectedNodes.push(node);
+                        }
+                        node.select();
+                        this.selectNode = node; // Keep track of last selected
+                    }
+                    console.log('[CLICK] Multi-select:', this.selectedNodes.length, 'nodes selected');
+                } else {
+                    // Normal click - single select
+                    if (!node.isSelect) {
+                        console.log('[CLICK] Selecting node');
+                        this.clearSelectNode();
+                        this.selectNode = node;
+                        this.selectedNodes = [node];
+                        this.selectNode?.select();
+                        this._menuDom.style.display='none';
+                        var box = this.selectNode.getBox();
+                    } else if (node.data.isRoot) {
+                        // If clicking on an already selected root node, toggle collapse all
+                        console.log('[CLICK] Root node already selected - toggling collapse');
+                        this.toggleCollapseRoot(node);
+                    }
                 }
             } else {
+                console.log('[CLICK] Clicked outside nodes - clearing selection');
                 this.clearSelectNode();
                 this._menuDom.style.display='none';
             }
@@ -1881,8 +1969,14 @@ export default class MindMap {
 
     appMouseMove(evt: MouseEvent) {
         const targetEl = evt.target as HTMLElement;
+
+        // Track mouse position for instant node creation
+        this._lastMouseX = evt.clientX;
+        this._lastMouseY = evt.clientY;
+
         this.scalePointer = [];
         this.scalePointer.push(evt.offsetX, evt.offsetY);
+
         if (targetEl.closest('.mm-node')) {
             var id = targetEl.closest('.mm-node').getAttribute('data-id');
             var node = this.getNodeById(id);
@@ -1891,17 +1985,197 @@ export default class MindMap {
                 this.scalePointer = [];
                 this.scalePointer.push(box.x + box.width / 2, box.y + box.height / 2);
             }
-        }else{
-            if(this.drag){
-                this.containerEL.scrollLeft = this._left - (evt.pageX - this.startX);
-                this.containerEL.scrollTop = this._top - (evt.pageY - this.startY);
+        }
+
+        // Handle node dragging
+        if(this.drag && this._nodeDragMode && this._dragNode){
+            var x = evt.pageX;
+            var y = evt.pageY;
+            // Account for zoom scale when calculating delta
+            const scale = this.mindScale / 100;
+            this.dx = (x - this.startX) / scale;
+            this.dy = (y - this.startY) / scale;
+
+            // Check if Alt key is still pressed OR forced mode (in case user pressed it during drag)
+            if (!this._isReparentDrag && (evt.altKey || evt.metaKey || this._forcedReparentMode)) {
+                console.log('[DRAG] Switching to REPARENT mode', {
+                    altKey: evt.altKey,
+                    metaKey: evt.metaKey,
+                    forcedMode: this._forcedReparentMode
+                });
+                this._isReparentDrag = true;
+            } else if (this._isReparentDrag && !evt.altKey && !evt.metaKey && !this._forcedReparentMode && !this._autoReparentFloating) {
+                console.log('[DRAG] Switching to POSITION mode');
+                this._isReparentDrag = false;
             }
+
+            if(this._isReparentDrag){
+                // Alt+drag: Reparenting mode - show drop targets
+                console.log('[DRAG] Reparenting mode active');
+                // Remove previous drop target highlighting
+                this.traverseDF((node: INode) => {
+                    node.containEl.classList.remove('mm-drop-target');
+                });
+
+                // Find the node under the cursor using manual bounding box check
+                // This is more reliable than elementFromPoint with transforms/scaling
+                let dropNode: INode = null;
+
+                this.traverseDF((node: INode) => {
+                    if (node === this._dragNode) return; // Skip dragged node
+
+                    const rect = node.containEl.getBoundingClientRect();
+                    if (evt.clientX >= rect.left && evt.clientX <= rect.right &&
+                        evt.clientY >= rect.top && evt.clientY <= rect.bottom) {
+                        dropNode = node;
+                    }
+                });
+
+                console.log('[DRAG] Looking for drop target:', {
+                    foundDropNode: !!dropNode,
+                    dropNodeText: dropNode?.data.text,
+                    mousePos: {x: evt.clientX, y: evt.clientY},
+                    allNodesCount: document.querySelectorAll('.mm-node').length
+                });
+
+                if(dropNode){
+                    console.log('[DRAG] Valid drop target:', dropNode.data.text);
+
+                    var box = dropNode.getBox();
+                    // Use clientX/Y for _getDragType since it uses getBoundingClientRect
+                    this._dragType = this._getDragType(dropNode, evt.clientX, evt.clientY);
+                    this._indicateDom.style.display = 'block';
+                    this._indicateDom.style.left = box.x + box.width / 2 - 40 / 2 + 'px';
+                    this._indicateDom.style.top = box.y - 90 + 'px';
+                    this._indicateDom.className = 'mm-node-layout-indicate';
+
+                    // Highlight the drop target node
+                    dropNode.containEl.classList.add('mm-drop-target');
+                    this._currentDropTarget = dropNode;
+
+                    if( this._dragType == 'top') {
+                        this._indicateDom.classList.add('mm-arrow-top');
+                    } else if ( this._dragType == 'down') {
+                        this._indicateDom.classList.add('mm-arrow-down');
+                    } else if ( this._dragType == 'left') {
+                        this._indicateDom.classList.add('mm-arrow-left');
+                    } else if ( this._dragType == 'right') {
+                        this._indicateDom.classList.add('mm-arrow-right');
+                    } else {
+                        this._indicateDom.classList.add('drag-type');
+                        var arr = this._dragType.split('-');
+                        if (arr[1]) {
+                            this._indicateDom.classList.add('mm-arrow-' + arr[1]);
+                        } else {
+                            this._indicateDom.classList.add('mm-arrow-right');
+                        }
+                    }
+                } else {
+                    this._indicateDom.style.display = 'none';
+                    this._currentDropTarget = null;
+                }
+            } else {
+                // Normal drag: Position mode - move node freely
+                const newX = this._dragStartPos.x + this.dx;
+                const newY = this._dragStartPos.y + this.dy;
+
+                // Mark as floating and update data immediately so restoreFloatingPositions() works
+                this._dragNode.data.isFloating = true;
+                this._dragNode.data.floatingX = newX;
+                this._dragNode.data.floatingY = newY;
+
+                // Update node position in real-time
+                this._dragNode.setPosition(newX, newY);
+
+                // Throttle refresh using requestAnimationFrame to redraw connection lines
+                if (!this._rafId) {
+                    this._rafId = requestAnimationFrame(() => {
+                        this.refresh();
+                        this._rafId = null;
+                    });
+                }
+
+                // Hide reparenting indicators
+                this._indicateDom.style.display = 'none';
+                this._currentDropTarget = null;
+            }
+        }
+        // Handle canvas panning
+        else if(this.drag && !this._nodeDragMode){
+            this.containerEL.scrollLeft = this._left - (evt.pageX - this.startX);
+            this.containerEL.scrollTop = this._top - (evt.pageY - this.startY);
         }
     }
 
     appMouseDown(evt:MouseEvent){
         const targetEl = evt.target as HTMLElement;
-        if(!targetEl.closest('.mm-node')){
+
+        // Don't start drag if clicking on collapse button - let click handler deal with it
+        if(targetEl.hasClass('mm-node-bar') || targetEl.closest('.mm-node-bar')){
+            console.log('[DRAG] Clicked on collapse button - skipping drag');
+            return;
+        }
+
+        const nodeEl = targetEl.closest('.mm-node');
+
+        console.log('[DRAG] appMouseDown fired', {
+            hasNodeEl: !!nodeEl,
+            altKey: evt.altKey,
+            metaKey: evt.metaKey,
+            ctrlKey: evt.ctrlKey,
+            shiftKey: evt.shiftKey,
+            target: evt.target
+        });
+
+        if(nodeEl){
+            // ALL nodes are now draggable
+            const nodeId = nodeEl.getAttribute('data-id');
+            this._dragNode = this.getNodeById(nodeId);
+
+            // Floating nodes (no parent connection) default to reparent mode for easy connection
+            const isFloatingOrphan = this._dragNode.data.isFloating || !this._dragNode.parent;
+            this._autoReparentFloating = isFloatingOrphan;
+
+            // Check if Alt key is pressed OR forced reparent mode is enabled OR node is floating
+            this._isReparentDrag = evt.altKey || evt.metaKey || this._forcedReparentMode || isFloatingOrphan;
+
+            console.log('[DRAG] Drag mode determined:', {
+                nodeText: this._dragNode.data.text,
+                isReparentDrag: this._isReparentDrag,
+                altKey: evt.altKey,
+                metaKey: evt.metaKey,
+                forcedReparentMode: this._forcedReparentMode,
+                isFloating: this._dragNode.data.isFloating,
+                hasParent: !!this._dragNode.parent,
+                autoReparent: isFloatingOrphan
+            });
+
+            this._nodeDragMode = true;
+            this.drag = true;
+            this.startX = evt.pageX;
+            this.startY = evt.pageY;
+
+            // Store original position for position drag
+            const pos = this._dragNode.getPosition();
+            this._dragStartPos = {x: pos.x, y: pos.y};
+
+            console.log(`[DRAG] Node drag started for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
+
+            // Add visual feedback for dragging
+            this._dragNode.containEl.classList.add('mm-dragging');
+            this.appEl.classList.add('mm-dragging-active');
+
+            // Make SVG pass-through during drag
+            const svgElement = this.contentEL.querySelector('svg');
+            if (svgElement) {
+                svgElement.style.pointerEvents = 'none';
+            }
+
+            evt.preventDefault();
+            evt.stopPropagation();
+        } else {
+            // Start canvas panning mode
+            console.log('[DRAG] Canvas panning mode started');
             this.drag = true;
             this.startX = evt.pageX;
             this.startY = evt.pageY;
@@ -1911,6 +2185,114 @@ export default class MindMap {
     }
 
     appMouseUp(evt:MouseEvent){
+        console.log('[DRAG] appMouseUp fired', {
+            nodeDragMode: this._nodeDragMode,
+            hasDragNode: !!this._dragNode,
+            dragNodeText: this._dragNode?.data.text,
+            isReparentDrag: this._isReparentDrag,
+            hasDropTarget: !!this._currentDropTarget,
+            dropTargetText: this._currentDropTarget?.data.text,
+            dragType: this._dragType
+        });
+
+        // Handle node drop
+        if(this._nodeDragMode && this._dragNode){
+            if(this._isReparentDrag && this._currentDropTarget){
+                // Alt+drag: Reparent the node
+                console.log('[DRAG] Executing reparent operation:', {
+                    dragNode: this._dragNode.data.text,
+                    dropTarget: this._currentDropTarget.data.text,
+                    dragType: this._dragType
+                });
+
+                if (this._dragNode.data.isRoot) {
+                    console.log('Cannot reparent root node');
+                    new Notice('Cannot reparent root node');
+                    // Restore original position
+                    this._dragNode.setPosition(this._dragStartPos.x, this._dragStartPos.y);
+                } else {
+                    if (evt.ctrlKey || evt.metaKey) {
+                        // Ctrl/Cmd key pressed: copy the node
+                        console.log('Copying node');
+                        let copiedNode = this.copyNode(this._dragNode);
+                        this._currentDropTarget.select();
+                        this.pasteNode(copiedNode);
+                        new Notice(`Copied "${this._dragNode.data.text}"`);
+                    } else {
+                        // Move the node in hierarchy
+                        console.log('Moving node with type:', this._dragType);
+                        this.moveNode(this._dragNode, this._currentDropTarget, this._dragType);
+
+                        // Clear floating state after successful reparent
+                        if (this._dragNode.data.isFloating) {
+                            this._dragNode.data.isFloating = false;
+                            delete this._dragNode.data.floatingX;
+                            delete this._dragNode.data.floatingY;
+
+                            // Remove from roots array if present
+                            const index = this.roots.indexOf(this._dragNode);
+                            if (index > -1) {
+                                this.roots.splice(index, 1);
+                                console.log('[DRAG] Removed floating node from roots array');
+                            }
+                        }
+
+                        new Notice(`Moved "${this._dragNode.data.text}"`);
+                    }
+                }
+            } else if(!this._isReparentDrag) {
+                // Normal drag: Save new floating position
+                const pos = this._dragNode.getPosition();
+                console.log(`Node positioned at: ${pos.x}, ${pos.y}`);
+
+                // Mark as floating and save position
+                this._dragNode.data.isFloating = true;
+                this._dragNode.data.floatingX = pos.x;
+                this._dragNode.data.floatingY = pos.y;
+
+                this.mindMapChange();
+            }
+        }
+
+        // Clean up drag state
+        if(this._nodeDragMode){
+            console.log('Node drag mode ended');
+            this._indicateDom.style.display = 'none';
+            this._menuDom.style.display = 'none';
+
+            // Cancel any pending animation frame
+            if (this._rafId) {
+                cancelAnimationFrame(this._rafId);
+                this._rafId = null;
+            }
+
+            // Final refresh to ensure lines are correctly drawn
+            this.refresh();
+
+            // Remove dragging visual feedback
+            if (this._dragNode) {
+                this._dragNode.containEl.classList.remove('mm-dragging');
+            }
+            this.appEl.classList.remove('mm-dragging-active');
+
+            // Restore SVG pointer events
+            const svgElement = this.contentEL.querySelector('svg');
+            if (svgElement) {
+                svgElement.style.pointerEvents = 'auto';
+            }
+
+            // Remove drop target highlighting from all nodes
+            this.traverseDF((node: INode) => {
+                node.containEl.classList.remove('mm-drop-target');
+            });
+
+            this._currentDropTarget = null;
+            this._nodeDragMode = false;
+            this._isReparentDrag = false;
+            this._autoReparentFloating = false;
+            this._dragStartPos = null;
+        }
+
         this.drag = false;
     }
 
@@ -1976,6 +2358,200 @@ export default class MindMap {
         this.clearNode();
         this.removeEvent();
         this.draw?.clear();
+    }
+
+    // Add a new root node to the canvas
+    addNewRoot(text?: string) {
+        const rootIndex = this.roots.length;
+        const rootSpacing = 800;
+        const startX = this.setting.canvasSize / 2 - 60;
+        const startY = this.setting.canvasSize / 2 - 200;
+
+        const newRootData: INodeData = {
+            id: uuid(),
+            text: text || `New Map ${rootIndex + 1}`,
+            children: [],
+            isRoot: true,
+            expanded: true
+        };
+
+        const newRoot = new INode(newRootData, this);
+        const x = startX + (rootIndex * rootSpacing);
+        const y = startY;
+
+        newRoot.setPosition(x, y);
+        newRoot.data.isRoot = true;
+        this.roots.push(newRoot);
+        this.contentEL.appendChild(newRoot.containEl);
+        newRoot.refreshBox();
+
+        this.refresh();
+        this.mindMapChange();
+
+        return newRoot;
+    }
+
+    // Convert screen coordinates to canvas coordinates
+    screenToCanvasCoords(clientX: number, clientY: number): {x: number, y: number} {
+        const rect = this.appEl.getBoundingClientRect();
+        const scale = this.mindScale / 100;
+
+        // Account for scroll position and zoom scale
+        const canvasX = (clientX - rect.left + this.containerEL.scrollLeft) / scale;
+        const canvasY = (clientY - rect.top + this.containerEL.scrollTop) / scale;
+
+        return {x: canvasX, y: canvasY};
+    }
+
+    // Create node at cursor position (instant capture)
+    createNodeAtCursor(text: string = '') {
+        let coords = this._lastMouseX && this._lastMouseY
+            ? this.screenToCanvasCoords(this._lastMouseX, this._lastMouseY)
+            : { x: this.setting.canvasSize / 2, y: this.setting.canvasSize / 2 };
+
+        // Auto-space nodes to prevent overlap
+        // If creating near the same position, offset in a grid pattern
+        if (this._lastCreationPosition &&
+            Math.abs(coords.x - this._lastCreationPosition.x) < 50 &&
+            Math.abs(coords.y - this._lastCreationPosition.y) < 50) {
+            // Same area - apply spacing offset
+            const spacing = 180;  // Horizontal spacing
+            const rowHeight = 120;  // Vertical spacing
+            const nodesPerRow = 3;
+
+            const row = Math.floor(this._nodeCreationCount / nodesPerRow);
+            const col = this._nodeCreationCount % nodesPerRow;
+
+            coords = {
+                x: this._lastCreationPosition.x + (col * spacing),
+                y: this._lastCreationPosition.y + (row * rowHeight)
+            };
+
+            this._nodeCreationCount++;
+        } else {
+            // New area - reset counter
+            this._nodeCreationCount = 1;
+            this._lastCreationPosition = {x: coords.x, y: coords.y};
+        }
+
+        // Don't auto-refresh yet - we'll do it after selection
+        const node = this.addFloatingNode(text, coords.x, coords.y, false);
+
+        // Select the node BEFORE refresh so selection persists
+        this.clearSelectNode();
+        this.selectNode = node;
+        node.select();
+
+        // Now refresh with the node already selected
+        this.refresh();
+        this.mindMapChange();
+
+        // Enter edit mode after refresh completes
+        setTimeout(() => {
+            if (!node.data.isEdit) {
+                node.edit();
+            }
+        }, 100);
+
+        return node;
+    }
+
+    // Add a floating node (no parent, custom position)
+    addFloatingNode(text: string, x?: number, y?: number, autoRefresh: boolean = true) {
+        // Use provided position or canvas center
+        const posX = x !== undefined ? x : this.setting.canvasSize / 2;
+        const posY = y !== undefined ? y : this.setting.canvasSize / 2;
+
+        const floatingNodeData: INodeData = {
+            id: uuid(),
+            text: text,
+            children: [],
+            isRoot: false,
+            expanded: true,
+            isFloating: true,
+            floatingX: posX,
+            floatingY: posY
+        };
+
+        const floatingNode = new INode(floatingNodeData, this);
+        floatingNode.setPosition(posX, posY);
+        this.contentEL.appendChild(floatingNode.containEl);
+        floatingNode.refreshBox();
+
+        // Add to roots array so it gets traversed (but not marked as isRoot)
+        this.roots.push(floatingNode);
+
+        if (autoRefresh) {
+            this.refresh();
+            this.mindMapChange();
+        }
+
+        return floatingNode;
+    }
+
+    // Toggle collapse/expand all children of a root node
+    toggleCollapseRoot(rootNode: INode) {
+        console.log('[COLLAPSE] toggleCollapseRoot called', {
+            nodeText: rootNode.data.text,
+            isRoot: rootNode.data.isRoot,
+            numChildren: rootNode.children.length
+        });
+
+        if (!rootNode.data.isRoot) {
+            console.log('[COLLAPSE] Node is not a root, returning');
+            return;
+        }
+
+        // Check if any children are expanded
+        let hasExpandedChildren = false;
+        rootNode.children.forEach(child => {
+            if (child.isExpand) {
+                hasExpandedChildren = true;
+            }
+        });
+
+        console.log('[COLLAPSE] Collapse state:', {
+            hasExpandedChildren,
+            action: hasExpandedChildren ? 'COLLAPSE ALL' : 'EXPAND ALL'
+        });
+
+        // If any are expanded, collapse all; otherwise expand all
+        if (hasExpandedChildren) {
+            this.collapseAllChildren(rootNode);
+        } else {
+            this.expandAllChildren(rootNode);
+        }
+
+        this.refresh();
+        console.log('[COLLAPSE] Refresh complete');
+    }
+
+    // Collapse all descendants of a node
+    collapseAllChildren(node: INode) {
+        console.log('[COLLAPSE] collapseAllChildren called for:', node.data.text);
+        let count = 0;
+        this.traverseDF((n: INode) => {
+            if (n !== node && n.isExpand) {
+                console.log('[COLLAPSE] Collapsing:', n.data.text);
+                n.collapse();
+                count++;
+            }
+        }, node);
+        console.log(`[COLLAPSE] Collapsed ${count} nodes`);
+    }
+
+    // Expand all descendants of a node
+    expandAllChildren(node: INode) {
+        console.log('[COLLAPSE] expandAllChildren called for:', node.data.text);
+        let count = 0;
+        this.traverseDF((n: INode) => {
+            if (!n.isExpand) {
+                console.log('[COLLAPSE] Expanding:', n.data.text);
+                n.expand();
+                count++;
+            }
+        }, node);
+        console.log(`[COLLAPSE] Expanded ${count} nodes`);
     }
     //get node list rect point
     getBoundingRect(list: INode[]) {
@@ -2197,11 +2773,29 @@ export default class MindMap {
             // Select and center on the mindmap's root when opening it
             this.root.select();
             this.centerOnNode(this.root);
+            // Restore floating positions after initial layout
+            this.restoreFloatingPositions();
+            // Redraw connections after floating positions are applied
+            this.mmLayout.createLink();
             return;
         }
 
         this.mmLayout.layout(this.root, this.setting.layoutDirect || this.mmLayout.direct || 'mind map');
 
+        // After layout calculation, restore floating node positions
+        this.restoreFloatingPositions();
+
+        // Redraw connection lines now that nodes are in their final positions
+        this.mmLayout.createLink();
+    }
+
+    // Restore custom positions for floating nodes (overrides layout calculation)
+    restoreFloatingPositions() {
+        this.traverseDF((node: INode) => {
+            if (node.data.isFloating && node.data.floatingX !== undefined && node.data.floatingY !== undefined) {
+                node.setPosition(node.data.floatingX, node.data.floatingY);
+            }
+        });
     }
 
     refresh() {

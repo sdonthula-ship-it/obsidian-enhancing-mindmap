@@ -181,11 +181,59 @@ See `IMPROVEMENTS.md` for detailed documentation of recent visual and UX enhance
 - Comprehensive theme support
 - Custom scrollbar styling
 
-### Drag & Drop (NEW!)
+### Drag & Drop
 
 See `DRAG_DROP_GUIDE.md` for complete guide. Quick overview:
-- **All nodes are always draggable** - just drag any node to reparent it
+- **Select-then-drag pattern** - Click to select node (red border), then drag to move
+- **Mouse-based implementation** - Uses mousedown/mousemove/mouseup (not HTML5 drag API)
 - **Visual feedback** - grab cursor, semi-transparent drag, pulsing drop targets
 - **Drop zones** - top/bottom for siblings, center/edges for children
 - **Copy mode** - Hold Ctrl/Cmd while dragging to copy instead of move
-- **Command**: "Show drag & drop help" for quick reference
+- **Implementation**: `appMouseDown`, `appMouseMove`, `appMouseUp` in mindmap.ts
+
+### Multi-Root Support (Multi-Map Canvas)
+
+See `MULTI_MAP_GUIDE.md` for complete guide. Quick overview:
+- **Multiple root nodes** - Create separate independent maps on the same canvas
+- **Keyboard shortcut**: Alt + Shift + N to add new root node
+- **Root spacing** - Roots are positioned 800px apart horizontally
+- **Collapse all** - Double-click an already-selected root to collapse/expand its entire tree
+- **Data structure** - `mindmap.roots[]` array stores all root nodes, `mindmap.root` points to first root
+- **Traversal** - `traverseDF` and `traverseBF` methods iterate over all roots when no node specified
+- **Current limitation** - Only first root persists to markdown (multi-root markdown format TBD)
+
+### Floating Nodes (Free Positioning)
+
+See `FLOATING_NODES_GUIDE.md` for complete guide. Quick overview:
+- **All nodes freely movable** - Click and drag any node to position it anywhere
+- **Two drag modes**:
+  - Normal drag: Free positioning (updates `floatingX`, `floatingY`)
+  - Alt+drag: Reparenting (changes parent-child relationships)
+- **Quick add**: Alt + Shift + F to create floating node from text prompt
+- **Data structure**: Nodes with `isFloating: true` and custom `floatingX`, `floatingY` coordinates
+- **Implementation**:
+  - `appMouseDown` checks for Alt key to determine mode (`_isReparentDrag`)
+  - `appMouseMove` either shows drop targets (reparent) or moves node position (free)
+  - `appMouseUp` saves floating position or executes reparent operation
+  - `restoreFloatingPositions()` overrides layout calculations with saved positions
+- **Methods**: `addFloatingNode(text, x, y)` creates independent floating nodes
+- **Position persistence**: Floating positions override layout algorithm after each refresh
+
+### Graph Mode (Obsidian Graph View Style)
+
+See `GRAPH_MODE_GUIDE.md` for complete guide. Quick overview:
+- **Toggle**: Settings → Mind Map → "Graph Mode" toggle (global setting)
+- **Visual style**: Circular nodes (like Obsidian Graph View) instead of rounded rectangles
+- **Connection lines**: Straight lines instead of curved Bezier paths
+- **Text labels**: Text appears below nodes (via CSS `::after` with `data-text` attribute)
+- **Node sizes**:
+  - Root: 24px circles
+  - Second level: 20px circles
+  - Regular: 16px circles
+- **Implementation**:
+  - Setting: `graphMode: boolean` in MindMapSettings
+  - CSS: `.mm-graph-mode` class on `.mm-mindmap` element
+  - Layout.ts: Checks `me.mind.setting.graphMode` to use `L` (line) instead of `C` (cubic Bezier) SVG paths
+  - INode: `data-text` attribute updated on node creation and `setText()`
+- **Use cases**: Network visualization, knowledge graphs, non-hierarchical brainstorming
+- **Current limitation**: Global setting (affects all mindmaps), no physics simulation (manual positioning)
