@@ -10457,10 +10457,10 @@ class MindMap {
                     console.log(`[DRAG] Node drag STARTED for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
                     // Show mode hint (only once per drag)
                     if (this._isReparentDrag) {
-                        new obsidian.Notice('Reparent mode: Drop on target to change parent', 1500);
+                        new obsidian.Notice('Reparent: Drop on target | Hold Shift to copy', 1500);
                     }
                     else {
-                        new obsidian.Notice('Free position mode: Hold Alt to reparent instead', 1500);
+                        new obsidian.Notice('Free position: Hold Alt to reparent | Hold Shift to copy', 1500);
                     }
                 }
                 else {
@@ -10723,13 +10723,13 @@ class MindMap {
                     this._dragNode.setPosition(this._dragStartPos.x, this._dragStartPos.y);
                 }
                 else {
-                    if (evt.ctrlKey || evt.metaKey) {
-                        // Ctrl/Cmd key pressed: copy the node
-                        console.log('Copying node');
+                    if (evt.shiftKey) {
+                        // Shift key pressed: copy the node (industry standard)
+                        console.log('Copying node (Shift held)');
                         let copiedNode = this.copyNode(this._dragNode);
                         this._currentDropTarget.select();
                         this.pasteNode(copiedNode);
-                        new obsidian.Notice(`Copied "${this._dragNode.data.text}"`);
+                        new obsidian.Notice(`Copied "${this._dragNode.data.text}" (Shift+drag to copy)`);
                     }
                     else {
                         // Move the node in hierarchy
@@ -42314,11 +42314,11 @@ class MindMapPlugin extends obsidian.Plugin {
                 name: `${t('Show drag & drop help')}`,
                 callback: () => {
                     new obsidian.Notice(`Drag & Drop Guide:
-• Drag any node to move it
-• Drop on another node to reparent
-• Drop on top/bottom: add as sibling
-• Drop on left/right: add as child
-• Ctrl+Drag: copy instead of move`, 10000);
+• Tree nodes: Drag = reparent (change parent)
+• Floating nodes: Drag = free position
+• Alt/Cmd+Drag: Toggle mode
+• Shift+Drag: Copy instead of move
+• Drop zones: top/bottom = sibling, center/edges = child`, 10000);
                 }
             });
             // Create connection between nodes

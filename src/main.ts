@@ -1414,11 +1414,11 @@ export default class MindMapPlugin extends Plugin {
       name: `${t('Show drag & drop help')}`,
       callback: () => {
         new Notice(`Drag & Drop Guide:
-• Drag any node to move it
-• Drop on another node to reparent
-• Drop on top/bottom: add as sibling
-• Drop on left/right: add as child
-• Ctrl+Drag: copy instead of move`, 10000);
+• Tree nodes: Drag = reparent (change parent)
+• Floating nodes: Drag = free position
+• Alt/Cmd+Drag: Toggle mode
+• Shift+Drag: Copy instead of move
+• Drop zones: top/bottom = sibling, center/edges = child`, 10000);
       }
     });
 

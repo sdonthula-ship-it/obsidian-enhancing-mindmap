@@ -2179,9 +2179,9 @@ export default class MindMap {
 
                     // Show mode hint (only once per drag)
                     if (this._isReparentDrag) {
-                        new Notice('Reparent mode: Drop on target to change parent', 1500);
+                        new Notice('Reparent: Drop on target | Hold Shift to copy', 1500);
                     } else {
-                        new Notice('Free position mode: Hold Alt to reparent instead', 1500);
+                        new Notice('Free position: Hold Alt to reparent | Hold Shift to copy', 1500);
                     }
                 } else {
                     // Haven't moved enough yet - don't do anything
@@ -2462,13 +2462,13 @@ export default class MindMap {
                     // Restore original position
                     this._dragNode.setPosition(this._dragStartPos.x, this._dragStartPos.y);
                 } else {
-                    if (evt.ctrlKey || evt.metaKey) {
-                        // Ctrl/Cmd key pressed: copy the node
-                        console.log('Copying node');
+                    if (evt.shiftKey) {
+                        // Shift key pressed: copy the node (industry standard)
+                        console.log('Copying node (Shift held)');
                         let copiedNode = this.copyNode(this._dragNode);
                         this._currentDropTarget.select();
                         this.pasteNode(copiedNode);
-                        new Notice(`Copied "${this._dragNode.data.text}"`);
+                        new Notice(`Copied "${this._dragNode.data.text}" (Shift+drag to copy)`);
                     } else {
                         // Move the node in hierarchy
                         console.log('Moving node with type:', this._dragType);
