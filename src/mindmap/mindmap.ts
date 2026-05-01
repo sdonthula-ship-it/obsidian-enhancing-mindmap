@@ -2176,6 +2176,13 @@ export default class MindMap {
                     }
 
                     console.log(`[DRAG] Node drag STARTED for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
+
+                    // Show mode hint (only once per drag)
+                    if (this._isReparentDrag) {
+                        new Notice('Reparent mode: Drop on target to change parent', 1500);
+                    } else {
+                        new Notice('Free position mode: Hold Alt to reparent instead', 1500);
+                    }
                 } else {
                     // Haven't moved enough yet - don't do anything
                     return;
@@ -2192,17 +2199,35 @@ export default class MindMap {
                 return;
             }
 
-            // Check if Alt key is still pressed OR forced mode (in case user pressed it during drag)
-            if (!this._isReparentDrag && (evt.altKey || evt.metaKey || this._forcedReparentMode)) {
-                console.log('[DRAG] Switching to REPARENT mode', {
-                    altKey: evt.altKey,
-                    metaKey: evt.metaKey,
-                    forcedMode: this._forcedReparentMode
+            // Dynamic mode switching based on Alt key and node type
+            const altPressed = evt.altKey || evt.metaKey;
+            const isFloating = this._dragNode.data.isFloating;
+            const hasParent = !!this._dragNode.parent;
+            let desiredMode: boolean;
+
+            if (this._dragNode.data.isRoot) {
+                desiredMode = false; // Root can't reparent
+            } else if (isFloating) {
+                // Floating: Alt enables reparent
+                desiredMode = altPressed || this._forcedReparentMode;
+            } else if (hasParent) {
+                // Tree: Alt disables reparent (enables free position)
+                desiredMode = !altPressed || this._forcedReparentMode;
+            } else {
+                // Orphaned: treat like floating
+                desiredMode = altPressed || this._forcedReparentMode;
+            }
+
+            // Switch mode if it changed
+            if (this._isReparentDrag !== desiredMode) {
+                console.log('[DRAG] Mode switching:', {
+                    from: this._isReparentDrag ? 'REPARENT' : 'POSITION',
+                    to: desiredMode ? 'REPARENT' : 'POSITION',
+                    altPressed,
+                    isFloating,
+                    hasParent
                 });
-                this._isReparentDrag = true;
-            } else if (this._isReparentDrag && !evt.altKey && !evt.metaKey && !this._forcedReparentMode && !this._autoReparentFloating) {
-                console.log('[DRAG] Switching to POSITION mode');
-                this._isReparentDrag = false;
+                this._isReparentDrag = desiredMode;
             }
 
             if(this._isReparentDrag){
@@ -2339,18 +2364,36 @@ export default class MindMap {
                 return;
             }
 
-            // For graph-mode connections, nodes should be freely movable by default
-            // Only enter reparent mode when Alt/Cmd is held OR forced mode is enabled
-            this._isReparentDrag = evt.altKey || evt.metaKey || this._forcedReparentMode;
+            // Smart drag mode selection:
+            // - Tree nodes (with parent): Default to reparent, Alt toggles to free position
+            // - Floating nodes: Default to free position, Alt toggles to reparent
+            // - Root nodes: Always free position (can't reparent)
+            const hasParent = !!this._dragNode.parent;
+            const isFloating = this._dragNode.data.isFloating;
+            const altPressed = evt.altKey || evt.metaKey;
+
+            if (this._dragNode.data.isRoot) {
+                // Root nodes can't be reparented
+                this._isReparentDrag = false;
+            } else if (isFloating) {
+                // Floating nodes: free position by default, Alt enables reparent
+                this._isReparentDrag = altPressed || this._forcedReparentMode;
+            } else if (hasParent) {
+                // Tree nodes: reparent by default, Alt enables free position
+                this._isReparentDrag = !altPressed || this._forcedReparentMode;
+            } else {
+                // Orphaned nodes: treat like floating
+                this._isReparentDrag = altPressed || this._forcedReparentMode;
+            }
 
             console.log('[DRAG] Drag PREPARED (not started yet):', {
                 nodeText: this._dragNode.data.text,
                 isReparentDrag: this._isReparentDrag,
-                altKey: evt.altKey,
-                metaKey: evt.metaKey,
+                altKey: altPressed,
                 forcedReparentMode: this._forcedReparentMode,
-                isFloating: this._dragNode.data.isFloating,
-                hasParent: !!this._dragNode.parent
+                isFloating: isFloating,
+                hasParent: hasParent,
+                mode: this._isReparentDrag ? 'REPARENT' : 'FREE_POSITION'
             });
 
             // DON'T start drag yet - just prepare for it
