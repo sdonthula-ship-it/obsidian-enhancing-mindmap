@@ -1427,22 +1427,28 @@ export default class MindMapPlugin extends Plugin {
       id: 'create-node-connection',
       name: 'Create connection from selected node',
       hotkeys: [{ modifiers: ['Mod'], key: 'l' }],
-      callback: () => {
-        console.log('[COMMAND] Create connection command triggered');
+      checkCallback: (checking: boolean) => {
+        console.log('[COMMAND] checkCallback called, checking:', checking);
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-        console.log('[COMMAND] mindmapView:', !!mindmapView, 'mindmap:', !!mindmapView?.mindmap);
-        if (mindmapView && mindmapView.mindmap) {
-          const mindmap = mindmapView.mindmap;
-          console.log('[COMMAND] selectNode:', mindmap.selectNode ? mindmap.selectNode.data.text : 'null');
-          if (mindmap.selectNode) {
-            console.log('[COMMAND] Calling startConnectionMode');
-            mindmap.startConnectionMode(mindmap.selectNode);
-          } else {
-            new Notice('Please select a source node first');
+        const hasView = !!mindmapView?.mindmap;
+        const hasNode = !!mindmapView?.mindmap?.selectNode;
+
+        console.log('[COMMAND] hasView:', hasView, 'hasNode:', hasNode);
+
+        if (hasView) {
+          if (!checking) {
+            console.log('[COMMAND] Executing create connection');
+            const mindmap = mindmapView.mindmap;
+            if (mindmap.selectNode) {
+              console.log('[COMMAND] Calling startConnectionMode');
+              mindmap.startConnectionMode(mindmap.selectNode);
+            } else {
+              new Notice('Please select a source node first');
+            }
           }
-        } else {
-          console.log('[COMMAND] No mindmap view found');
+          return true;
         }
+        return false;
       }
     });
 

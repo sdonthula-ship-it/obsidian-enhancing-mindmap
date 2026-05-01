@@ -670,9 +670,8 @@ export default class MindMap {
             //     //else: no node selected: nothing to do
             // }
 
-            // Delete key or Shift+Backspace (safer than bare Backspace)
-            if ((keyCode == 46 || e.key == 'Delete') ||
-                ((keyCode == 8 || e.key == 'Backspace') && shiftKey)) {
+            // Delete key or Backspace (safe due to guards: not editing, no modals, mindmap focused)
+            if (keyCode == 46 || keyCode == 8 || e.key == 'Delete' || e.key == 'Backspace') {
                 console.log('[DELETE] Delete key pressed', {
                     key: e.key,
                     keyCode: keyCode,

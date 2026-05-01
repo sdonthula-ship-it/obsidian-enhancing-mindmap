@@ -9233,9 +9233,8 @@ class MindMap {
             //     }
             //     //else: no node selected: nothing to do
             // }
-            // Delete key or Shift+Backspace (safer than bare Backspace)
-            if ((keyCode == 46 || e.key == 'Delete') ||
-                ((keyCode == 8 || e.key == 'Backspace') && shiftKey)) {
+            // Delete key or Backspace (safe due to guards: not editing, no modals, mindmap focused)
+            if (keyCode == 46 || keyCode == 8 || e.key == 'Delete' || e.key == 'Backspace') {
                 console.log('[DELETE] Delete key pressed', {
                     key: e.key,
                     keyCode: keyCode,
@@ -42158,24 +42157,28 @@ class MindMapPlugin extends obsidian.Plugin {
                 id: 'create-node-connection',
                 name: 'Create connection from selected node',
                 hotkeys: [{ modifiers: ['Mod'], key: 'l' }],
-                callback: () => {
-                    console.log('[COMMAND] Create connection command triggered');
+                checkCallback: (checking) => {
+                    var _a;
+                    console.log('[COMMAND] checkCallback called, checking:', checking);
                     const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
-                    console.log('[COMMAND] mindmapView:', !!mindmapView, 'mindmap:', !!(mindmapView === null || mindmapView === void 0 ? void 0 : mindmapView.mindmap));
-                    if (mindmapView && mindmapView.mindmap) {
-                        const mindmap = mindmapView.mindmap;
-                        console.log('[COMMAND] selectNode:', mindmap.selectNode ? mindmap.selectNode.data.text : 'null');
-                        if (mindmap.selectNode) {
-                            console.log('[COMMAND] Calling startConnectionMode');
-                            mindmap.startConnectionMode(mindmap.selectNode);
+                    const hasView = !!(mindmapView === null || mindmapView === void 0 ? void 0 : mindmapView.mindmap);
+                    const hasNode = !!((_a = mindmapView === null || mindmapView === void 0 ? void 0 : mindmapView.mindmap) === null || _a === void 0 ? void 0 : _a.selectNode);
+                    console.log('[COMMAND] hasView:', hasView, 'hasNode:', hasNode);
+                    if (hasView) {
+                        if (!checking) {
+                            console.log('[COMMAND] Executing create connection');
+                            const mindmap = mindmapView.mindmap;
+                            if (mindmap.selectNode) {
+                                console.log('[COMMAND] Calling startConnectionMode');
+                                mindmap.startConnectionMode(mindmap.selectNode);
+                            }
+                            else {
+                                new obsidian.Notice('Please select a source node first');
+                            }
                         }
-                        else {
-                            new obsidian.Notice('Please select a source node first');
-                        }
+                        return true;
                     }
-                    else {
-                        console.log('[COMMAND] No mindmap view found');
-                    }
+                    return false;
                 }
             });
             this.registerView(mindmapViewType, (leaf) => new MindMapView(leaf, this));
