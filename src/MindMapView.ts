@@ -335,6 +335,8 @@ export class MindMapView extends TextFileView implements HoverParent {
     // Remove draggables from render, as the DOM has already detached
     //this.plugin.removeView(this);
     if (this.mindmap) {
+      // CRITICAL: Remove event listeners BEFORE clearing to prevent memory leaks
+      this.mindmap.removeEvent();
       this.mindmap.clear();
       this.contentEl.innerHTML = '';
       this.mindmap = null;

@@ -8789,6 +8789,9 @@ class MindMap {
         this.appEl.classList.add('mm-mindmap');
         this.appEl.classList.add(`mm-theme-${this.setting.theme}`);
         this.appEl.style.overflow = "auto";
+        // Make appEl focusable so keyboard events work
+        this.appEl.setAttribute('tabindex', '-1');
+        this.appEl.style.outline = 'none'; // Remove focus outline
         // Apply graph mode class if enabled
         if (this.setting.graphMode) {
             this.appEl.classList.add('mm-graph-mode');
@@ -8848,6 +8851,16 @@ class MindMap {
         this.initEvent();
         //this.center();
         this.dispLevel = 0;
+        // Defensive: Reset SVG pointer-events if stuck (e.g., after crash during drag)
+        setInterval(() => {
+            if (!this.drag && !this._nodeDragMode) {
+                const svgElement = this.contentEL.querySelector('svg');
+                if (svgElement && svgElement.style.pointerEvents === 'none') {
+                    console.warn('[SVG] Fixing stuck pointer-events');
+                    svgElement.style.pointerEvents = 'auto';
+                }
+            }
+        }, 5000); // Check every 5 seconds
     }
     setMenuIcon() {
         var addNodeDom = document.createElement('span');
@@ -9023,12 +9036,11 @@ class MindMap {
         // CRITICAL: Also add to document to catch all drag events
         document.addEventListener('dragover', this.appDragover);
         document.addEventListener('drop', this.appDrop);
-        // COMPLETELY DISABLED: Keyboard listeners are breaking typing in Obsidian
-        // TODO: Re-implement with proper scoping
-        // this.appEl.addEventListener('keyup', this.appKeyup);
-        // this.appEl.addEventListener('keydown', this.appKeydown);
-        // this.appEl.addEventListener('compositionstart',this.compositionStart)
-        // this.appEl.addEventListener('compositionend',this.compositionEnd)
+        // Re-enabled: Keyboard handlers have proper guards to not interfere with editing
+        this.appEl.addEventListener('keyup', this.appKeyup);
+        this.appEl.addEventListener('keydown', this.appKeydown);
+        this.appEl.addEventListener('compositionstart', this.compositionStart);
+        this.appEl.addEventListener('compositionend', this.compositionEnd);
         document.body.addEventListener('mousewheel', this.appMousewheel);
         if (obsidian.Platform.isDesktop) {
             this.appEl.addEventListener('mousedown', this.appMouseDown);
@@ -9053,11 +9065,11 @@ class MindMap {
         // Remove document listeners
         document.removeEventListener('dragover', this.appDragover);
         document.removeEventListener('drop', this.appDrop);
-        // Keyboard listeners are disabled
-        // this.appEl.removeEventListener('keyup', this.appKeyup);
-        // this.appEl.removeEventListener('keydown', this.appKeydown);
-        // this.appEl.removeEventListener('compositionstart',this.compositionStart)
-        // this.appEl.removeEventListener('compositionend',this.compositionEnd)
+        // Remove keyboard listeners
+        this.appEl.removeEventListener('keyup', this.appKeyup);
+        this.appEl.removeEventListener('keydown', this.appKeydown);
+        this.appEl.removeEventListener('compositionstart', this.compositionStart);
+        this.appEl.removeEventListener('compositionend', this.compositionEnd);
         document.body.removeEventListener('mousewheel', this.appMousewheel);
         if (obsidian.Platform.isDesktop) {
             this.appEl.removeEventListener('mousedown', this.appMouseDown);
@@ -9112,7 +9124,12 @@ class MindMap {
             target.isContentEditable)) {
             return;
         }
-        if (!this.isFocused) {
+        // CRITICAL: Don't intercept if any modal is open
+        if (document.querySelector('.modal-container, .modal')) {
+            return;
+        }
+        // CRITICAL: Don't intercept if focus is not on mindmap
+        if (!this.isFocused || document.activeElement !== this.appEl) {
             return;
         }
         e.keyCode || e.which || e.charCode;
@@ -9146,8 +9163,19 @@ class MindMap {
         this.isComposing = false;
     }
     appKeyup(e) {
+        var _a, _b, _c, _d, _e, _f;
+        console.log('[KEYUP] Key pressed:', {
+            key: e.key,
+            keyCode: e.keyCode,
+            isFocused: this.isFocused,
+            hasSelectNode: !!this.selectNode,
+            selectNodeText: (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.data.text,
+            isEdit: (_b = this.editNode) === null || _b === void 0 ? void 0 : _b.data.isEdit,
+            target: (_c = e.target) === null || _c === void 0 ? void 0 : _c.tagName
+        });
         // CRITICAL: If any node is being edited, don't intercept keyboard events
         if (this.editNode && this.editNode.data.isEdit) {
+            console.log('[KEYUP] Ignoring - node is being edited');
             return;
         }
         // CRITICAL: Don't intercept if target is an input/textarea/contenteditable
@@ -9155,9 +9183,17 @@ class MindMap {
         if (target && (target.tagName === 'INPUT' ||
             target.tagName === 'TEXTAREA' ||
             target.isContentEditable)) {
+            console.log('[KEYUP] Ignoring - target is input/textarea/contenteditable');
             return;
         }
-        if (!this.isFocused) {
+        // CRITICAL: Don't intercept if any modal is open
+        if (document.querySelector('.modal-container, .modal')) {
+            console.log('[KEYUP] Ignoring - modal is open');
+            return;
+        }
+        // CRITICAL: Don't intercept if focus is not on mindmap
+        if (!this.isFocused || document.activeElement !== this.appEl) {
+            console.log('[KEYUP] Ignoring - mindmap not focused or activeElement mismatch');
             return;
         }
         var keyCode = e.keyCode || e.which || e.charCode;
@@ -9197,17 +9233,39 @@ class MindMap {
             //     }
             //     //else: no node selected: nothing to do
             // }
-            //delete
-            // if (keyCode == 46 || e.key == 'Delete' || e.key == 'Backspace') {
-            //     var node = this.selectNode;
-            //     if (node && !node.data.isRoot && !node.data.isEdit) {
-            //         e.preventDefault();
-            //         e.stopPropagation();
-            //         node.mindmap.execute("deleteNodeAndChild", { node });
-            //         this._menuDom.style.display='none';
-            //     }
-            //     //else: Deletion makes no sense
-            // }
+            // Delete key or Shift+Backspace (safer than bare Backspace)
+            if ((keyCode == 46 || e.key == 'Delete') ||
+                ((keyCode == 8 || e.key == 'Backspace') && shiftKey)) {
+                console.log('[DELETE] Delete key pressed', {
+                    key: e.key,
+                    keyCode: keyCode,
+                    shiftKey: shiftKey,
+                    hasNode: !!this.selectNode,
+                    nodeText: (_d = this.selectNode) === null || _d === void 0 ? void 0 : _d.data.text,
+                    isRoot: (_e = this.selectNode) === null || _e === void 0 ? void 0 : _e.data.isRoot,
+                    isEdit: (_f = this.selectNode) === null || _f === void 0 ? void 0 : _f.data.isEdit
+                });
+                var node = this.selectNode;
+                if (node && !node.data.isRoot && !node.data.isEdit) {
+                    // Confirmation for large subtrees
+                    const childCount = this.countDescendants(node);
+                    if (childCount > 10) {
+                        const confirmed = confirm(`Delete "${node.data.text}" and ${childCount} descendants?`);
+                        if (!confirmed) {
+                            console.log('[DELETE] User canceled deletion');
+                            return;
+                        }
+                    }
+                    console.log('[DELETE] Deleting node:', node.data.text);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    node.mindmap.execute("deleteNodeAndChild", { node });
+                    this._menuDom.style.display = 'none';
+                }
+                else {
+                    console.log('[DELETE] Cannot delete - either no node, is root, or is being edited');
+                }
+            }
             // Tab / Insert
             // if (keyCode == 9 || keyCode == 45 || e.key == 'Tab') {
             //     e.preventDefault();
@@ -9974,6 +10032,15 @@ class MindMap {
                         }
                         node.select();
                         this.selectNode = node; // Keep track of last selected
+                        // Give focus to mindmap so keyboard shortcuts work
+                        // But not if user clicked on a link or button
+                        if (!targetEl.hasClass('internal-link') &&
+                            targetEl.tagName !== 'A' &&
+                            targetEl.tagName !== 'BUTTON') {
+                            this.appEl.focus();
+                            this.isFocused = true;
+                            console.log('[FOCUS] Focused appEl for keyboard events');
+                        }
                     }
                     console.log('[CLICK] Multi-select:', this.selectedNodes.length, 'nodes selected');
                 }
@@ -9992,6 +10059,15 @@ class MindMap {
                         this.selectedNodes = [node];
                         (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.select();
                         this._menuDom.style.display = 'none';
+                        // Give focus to mindmap so keyboard shortcuts work immediately
+                        // But not if user clicked on a link or button
+                        if (!targetEl.hasClass('internal-link') &&
+                            targetEl.tagName !== 'A' &&
+                            targetEl.tagName !== 'BUTTON') {
+                            this.appEl.focus();
+                            this.isFocused = true;
+                            console.log('[FOCUS] Focused appEl for keyboard events');
+                        }
                         this.selectNode.getBox();
                     }
                     else if (node.data.isRoot) {
@@ -11127,6 +11203,18 @@ class MindMap {
             this.scale(oldScale);
         }
     }
+    // Count all descendants of a node (for delete confirmation)
+    countDescendants(node) {
+        let count = 0;
+        const countRecursive = (n) => {
+            if (n.children && n.children.length > 0) {
+                count += n.children.length;
+                n.children.forEach(child => countRecursive(child));
+            }
+        };
+        countRecursive(node);
+        return count;
+    }
     _resetMaxDisplayedLevel() {
         this.dispLevel = 0;
         return;
@@ -11561,9 +11649,8 @@ class MindMap {
         }
         // Check if app is available for modal
         if (!this.app) {
-            console.warn('[CONNECTION] No app instance available, using default connection type');
-            const ConnectionType = require('./INode').ConnectionType;
-            this.createConnection(this._connectionSourceNode.getId(), targetNode.getId(), ConnectionType.REFERENCE, undefined, false);
+            console.error('[CONNECTION] No app instance - cannot show modal');
+            new obsidian.Notice('Connection creation unavailable (no app context)');
             this.exitConnectionMode();
             return;
         }
@@ -40437,6 +40524,8 @@ class MindMapView extends obsidian.TextFileView {
             // Remove draggables from render, as the DOM has already detached
             //this.plugin.removeView(this);
             if (this.mindmap) {
+                // CRITICAL: Remove event listeners BEFORE clearing to prevent memory leaks
+                this.mindmap.removeEvent();
                 this.mindmap.clear();
                 this.contentEl.innerHTML = '';
                 this.mindmap = null;

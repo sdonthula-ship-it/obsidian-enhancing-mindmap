@@ -1,4 +1,4 @@
-import INode, { INodeData } from './INode'
+import INode, { INodeData, ConnectionType } from './INode'
 import Layout from './Layout'
 import { Notice, Platform } from 'obsidian'
 import SVG from 'svg.js'
@@ -112,6 +112,10 @@ export default class MindMap {
         this.appEl.classList.add(`mm-theme-${this.setting.theme}`);
         this.appEl.style.overflow = "auto";
 
+        // Make appEl focusable so keyboard events work
+        this.appEl.setAttribute('tabindex', '-1');
+        this.appEl.style.outline = 'none'; // Remove focus outline
+
         // Apply graph mode class if enabled
         if (this.setting.graphMode) {
             this.appEl.classList.add('mm-graph-mode');
@@ -134,7 +138,6 @@ export default class MindMap {
         this.setAppSetting();
         containerEL.appendChild(this.appEl);
         this.containerEL = containerEL;
-
 
         //layout direct
         this._indicateDom = document.createElement('div');
@@ -188,6 +191,17 @@ export default class MindMap {
         this.initEvent();
         //this.center();
         this.dispLevel=0;
+
+        // Defensive: Reset SVG pointer-events if stuck (e.g., after crash during drag)
+        setInterval(() => {
+            if (!this.drag && !this._nodeDragMode) {
+                const svgElement = this.contentEL.querySelector('svg');
+                if (svgElement && svgElement.style.pointerEvents === 'none') {
+                    console.warn('[SVG] Fixing stuck pointer-events');
+                    svgElement.style.pointerEvents = 'auto';
+                }
+            }
+        }, 5000); // Check every 5 seconds
     }
 
     setMenuIcon(){
@@ -381,12 +395,13 @@ export default class MindMap {
         // CRITICAL: Also add to document to catch all drag events
         document.addEventListener('dragover', this.appDragover);
         document.addEventListener('drop', this.appDrop);
-        // COMPLETELY DISABLED: Keyboard listeners are breaking typing in Obsidian
-        // TODO: Re-implement with proper scoping
-        // this.appEl.addEventListener('keyup', this.appKeyup);
-        // this.appEl.addEventListener('keydown', this.appKeydown);
-        // this.appEl.addEventListener('compositionstart',this.compositionStart)
-        // this.appEl.addEventListener('compositionend',this.compositionEnd)
+
+        // Re-enabled: Keyboard handlers have proper guards to not interfere with editing
+        this.appEl.addEventListener('keyup', this.appKeyup);
+        this.appEl.addEventListener('keydown', this.appKeydown);
+        this.appEl.addEventListener('compositionstart',this.compositionStart);
+        this.appEl.addEventListener('compositionend',this.compositionEnd);
+
         document.body.addEventListener('mousewheel', this.appMousewheel);
 
         if(Platform.isDesktop){
@@ -417,11 +432,12 @@ export default class MindMap {
         // Remove document listeners
         document.removeEventListener('dragover', this.appDragover);
         document.removeEventListener('drop', this.appDrop);
-        // Keyboard listeners are disabled
-        // this.appEl.removeEventListener('keyup', this.appKeyup);
-        // this.appEl.removeEventListener('keydown', this.appKeydown);
-        // this.appEl.removeEventListener('compositionstart',this.compositionStart)
-        // this.appEl.removeEventListener('compositionend',this.compositionEnd)
+
+        // Remove keyboard listeners
+        this.appEl.removeEventListener('keyup', this.appKeyup);
+        this.appEl.removeEventListener('keydown', this.appKeydown);
+        this.appEl.removeEventListener('compositionstart',this.compositionStart);
+        this.appEl.removeEventListener('compositionend',this.compositionEnd);
 
         document.body.removeEventListener('mousewheel', this.appMousewheel);
 
@@ -484,7 +500,13 @@ export default class MindMap {
             return;
         }
 
-        if (!this.isFocused) {
+        // CRITICAL: Don't intercept if any modal is open
+        if (document.querySelector('.modal-container, .modal')) {
+            return;
+        }
+
+        // CRITICAL: Don't intercept if focus is not on mindmap
+        if (!this.isFocused || document.activeElement !== this.appEl) {
             return;
         }
 
@@ -570,8 +592,19 @@ export default class MindMap {
      }
 
     appKeyup(e: KeyboardEvent) {
+        console.log('[KEYUP] Key pressed:', {
+            key: e.key,
+            keyCode: e.keyCode,
+            isFocused: this.isFocused,
+            hasSelectNode: !!this.selectNode,
+            selectNodeText: this.selectNode?.data.text,
+            isEdit: this.editNode?.data.isEdit,
+            target: (e.target as HTMLElement)?.tagName
+        });
+
         // CRITICAL: If any node is being edited, don't intercept keyboard events
         if (this.editNode && this.editNode.data.isEdit) {
+            console.log('[KEYUP] Ignoring - node is being edited');
             return;
         }
 
@@ -580,10 +613,19 @@ export default class MindMap {
         if (target && (target.tagName === 'INPUT' ||
             target.tagName === 'TEXTAREA' ||
             target.isContentEditable)) {
+            console.log('[KEYUP] Ignoring - target is input/textarea/contenteditable');
             return;
         }
 
-        if (!this.isFocused) {
+        // CRITICAL: Don't intercept if any modal is open
+        if (document.querySelector('.modal-container, .modal')) {
+            console.log('[KEYUP] Ignoring - modal is open');
+            return;
+        }
+
+        // CRITICAL: Don't intercept if focus is not on mindmap
+        if (!this.isFocused || document.activeElement !== this.appEl) {
+            console.log('[KEYUP] Ignoring - mindmap not focused or activeElement mismatch');
             return;
         }
 
@@ -628,17 +670,40 @@ export default class MindMap {
             //     //else: no node selected: nothing to do
             // }
 
-            //delete
-            // if (keyCode == 46 || e.key == 'Delete' || e.key == 'Backspace') {
-            //     var node = this.selectNode;
-            //     if (node && !node.data.isRoot && !node.data.isEdit) {
-            //         e.preventDefault();
-            //         e.stopPropagation();
-            //         node.mindmap.execute("deleteNodeAndChild", { node });
-            //         this._menuDom.style.display='none';
-            //     }
-            //     //else: Deletion makes no sense
-            // }
+            // Delete key or Shift+Backspace (safer than bare Backspace)
+            if ((keyCode == 46 || e.key == 'Delete') ||
+                ((keyCode == 8 || e.key == 'Backspace') && shiftKey)) {
+                console.log('[DELETE] Delete key pressed', {
+                    key: e.key,
+                    keyCode: keyCode,
+                    shiftKey: shiftKey,
+                    hasNode: !!this.selectNode,
+                    nodeText: this.selectNode?.data.text,
+                    isRoot: this.selectNode?.data.isRoot,
+                    isEdit: this.selectNode?.data.isEdit
+                });
+
+                var node = this.selectNode;
+                if (node && !node.data.isRoot && !node.data.isEdit) {
+                    // Confirmation for large subtrees
+                    const childCount = this.countDescendants(node);
+                    if (childCount > 10) {
+                        const confirmed = confirm(`Delete "${node.data.text}" and ${childCount} descendants?`);
+                        if (!confirmed) {
+                            console.log('[DELETE] User canceled deletion');
+                            return;
+                        }
+                    }
+
+                    console.log('[DELETE] Deleting node:', node.data.text);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    node.mindmap.execute("deleteNodeAndChild", { node });
+                    this._menuDom.style.display='none';
+                } else {
+                    console.log('[DELETE] Cannot delete - either no node, is root, or is being edited');
+                }
+            }
 
 
             // Tab / Insert
@@ -1718,6 +1783,16 @@ export default class MindMap {
                         }
                         node.select();
                         this.selectNode = node; // Keep track of last selected
+
+                        // Give focus to mindmap so keyboard shortcuts work
+                        // But not if user clicked on a link or button
+                        if (!targetEl.hasClass('internal-link') &&
+                            targetEl.tagName !== 'A' &&
+                            targetEl.tagName !== 'BUTTON') {
+                            this.appEl.focus();
+                            this.isFocused = true;
+                            console.log('[FOCUS] Focused appEl for keyboard events');
+                        }
                     }
                     console.log('[CLICK] Multi-select:', this.selectedNodes.length, 'nodes selected');
                 } else {
@@ -1736,6 +1811,17 @@ export default class MindMap {
                         this.selectedNodes = [node];
                         this.selectNode?.select();
                         this._menuDom.style.display='none';
+
+                        // Give focus to mindmap so keyboard shortcuts work immediately
+                        // But not if user clicked on a link or button
+                        if (!targetEl.hasClass('internal-link') &&
+                            targetEl.tagName !== 'A' &&
+                            targetEl.tagName !== 'BUTTON') {
+                            this.appEl.focus();
+                            this.isFocused = true;
+                            console.log('[FOCUS] Focused appEl for keyboard events');
+                        }
+
                         var box = this.selectNode.getBox();
                     } else if (node.data.isRoot) {
                         // If clicking on an already selected root node, toggle collapse all
@@ -3042,6 +3128,19 @@ export default class MindMap {
     }
 
 
+    // Count all descendants of a node (for delete confirmation)
+    countDescendants(node: INode): number {
+        let count = 0;
+        const countRecursive = (n: INode) => {
+            if (n.children && n.children.length > 0) {
+                count += n.children.length;
+                n.children.forEach(child => countRecursive(child));
+            }
+        };
+        countRecursive(node);
+        return count;
+    }
+
     _resetMaxDisplayedLevel() {
         this.dispLevel = 0;
         return;
@@ -3563,15 +3662,8 @@ export default class MindMap {
 
         // Check if app is available for modal
         if (!this.app) {
-            console.warn('[CONNECTION] No app instance available, using default connection type');
-            const ConnectionType = require('./INode').ConnectionType;
-            this.createConnection(
-                this._connectionSourceNode.getId(),
-                targetNode.getId(),
-                ConnectionType.REFERENCE,
-                undefined,
-                false
-            );
+            console.error('[CONNECTION] No app instance - cannot show modal');
+            new Notice('Connection creation unavailable (no app context)');
             this.exitConnectionMode();
             return;
         }
