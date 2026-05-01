@@ -15,78 +15,10 @@ import { MindMapSettings } from './settings';
 import { MindMapSettingsTab } from './settingTab'
 
 import { MindMapView, mindmapViewType } from "./MindMapView";
-import INode from './mindmap/INode';
+import INode, { ConnectionType } from './mindmap/INode';
 import { frontMatterKey, basicFrontmatter } from './constants';
 import { t } from './lang/helpers'
-
-// Text Input Modal for floating node creation
-class TextInputModal extends Modal {
-  result: string;
-  onSubmit: (result: string) => void;
-  placeholder: string;
-
-  constructor(app: any, placeholder: string, onSubmit: (result: string) => void) {
-    super(app);
-    this.placeholder = placeholder;
-    this.onSubmit = onSubmit;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-
-    contentEl.createEl("h3", { text: "Create Floating Node" });
-
-    new Setting(contentEl)
-      .setName("Node text")
-      .addText((text) =>
-        text
-          .setPlaceholder(this.placeholder)
-          .onChange((value) => {
-            this.result = value;
-          })
-          .inputEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              this.close();
-              if (this.result && this.result.trim()) {
-                this.onSubmit(this.result.trim());
-              }
-            }
-          })
-      );
-
-    new Setting(contentEl)
-      .addButton((btn) =>
-        btn
-          .setButtonText("Create")
-          .setCta()
-          .onClick(() => {
-            this.close();
-            if (this.result && this.result.trim()) {
-              this.onSubmit(this.result.trim());
-            }
-          }))
-      .addButton((btn) =>
-        btn
-          .setButtonText("Cancel")
-          .onClick(() => {
-            this.close();
-          }));
-
-    // Focus the input field
-    setTimeout(() => {
-      const inputEl = contentEl.querySelector('input');
-      if (inputEl) {
-        inputEl.focus();
-      }
-    }, 10);
-  }
-
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
-  }
-}
+import { TextInputModal } from './modals';
 
 export default class MindMapPlugin extends Plugin {
   settings: MindMapSettings;
@@ -230,12 +162,9 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'edit-selected-node',
       name: 'Edit selected node',
-      hotkeys: [
-        {
-          modifiers: [],
-          key: 'e',
-        },
-      ],
+      // DISABLED: No modifier keys break typing in Obsidian
+      // Use F2 or double-click instead
+      hotkeys: [],
       callback: () => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
         if(mindmapView && mindmapView.mindmap.selectNode){
@@ -247,12 +176,8 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'center-on-selected',
       name: 'Center view on selected node',
-      hotkeys: [
-        {
-          modifiers: [],
-          key: 'c',
-        },
-      ],
+      // DISABLED: No modifier keys break typing in Obsidian
+      hotkeys: [],
       callback: () => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
         if(mindmapView && mindmapView.mindmap.selectNode){
@@ -264,12 +189,9 @@ export default class MindMapPlugin extends Plugin {
     this.addCommand({
       id: 'toggle-collapse-selected',
       name: 'Toggle collapse/expand selected node',
-      hotkeys: [
-        {
-          modifiers: [],
-          key: ' ',
-        },
-      ],
+      // DISABLED: No modifier keys break typing in Obsidian
+      // Click on the collapse button instead
+      hotkeys: [],
       callback: () => {
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
         if(mindmapView && mindmapView.mindmap.selectNode){
@@ -1506,14 +1428,20 @@ export default class MindMapPlugin extends Plugin {
       name: 'Create connection from selected node',
       hotkeys: [{ modifiers: ['Mod'], key: 'l' }],
       callback: () => {
+        console.log('[COMMAND] Create connection command triggered');
         const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+        console.log('[COMMAND] mindmapView:', !!mindmapView, 'mindmap:', !!mindmapView?.mindmap);
         if (mindmapView && mindmapView.mindmap) {
           const mindmap = mindmapView.mindmap;
+          console.log('[COMMAND] selectNode:', mindmap.selectNode ? mindmap.selectNode.data.text : 'null');
           if (mindmap.selectNode) {
+            console.log('[COMMAND] Calling startConnectionMode');
             mindmap.startConnectionMode(mindmap.selectNode);
           } else {
             new Notice('Please select a source node first');
           }
+        } else {
+          console.log('[COMMAND] No mindmap view found');
         }
       }
     });

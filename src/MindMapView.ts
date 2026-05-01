@@ -376,7 +376,7 @@ export class MindMapView extends TextFileView implements HoverParent {
     //   });
     // }
 
-    this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings);
+    this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings, this.app);
     this.mindmap.colors = this.colors;
     if (this.firstInit) {
 

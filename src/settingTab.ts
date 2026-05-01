@@ -52,6 +52,29 @@ export class MindMapSettingsTab extends PluginSettingTab {
                     }));
 
         new Setting(containerEl)
+            .setName('Graph Mode')
+            .setDesc('Enable Graph View style: circular nodes, straight lines, free positioning (like Obsidian Graph View)')
+            .addToggle(toggle =>
+                toggle
+                    .setValue(this.plugin.settings.graphMode || false)
+                    .onChange((value: boolean) => {
+                        this.plugin.settings.graphMode = value;
+                        this.plugin.saveData(this.plugin.settings);
+                        const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+                        mindmapLeaves.forEach((leaf) => {
+                            var v = leaf.view as MindMapView;
+                            v.mindmap.setting.graphMode = value;
+                            // Toggle graph mode class
+                            if (value) {
+                                v.mindmap.appEl.classList.add('mm-graph-mode');
+                            } else {
+                                v.mindmap.appEl.classList.remove('mm-graph-mode');
+                            }
+                            v.mindmap.refresh();
+                        });
+                    }));
+
+        new Setting(containerEl)
             .setName(`${t('Canvas background')}`)
             .setDesc(`${t('Canvas background desc')}`)
             .addText(text =>

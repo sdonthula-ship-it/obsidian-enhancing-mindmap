@@ -11,4 +11,5 @@ export class MindMapSettings {
     //strokeArray?:string=''
     strokeArray?:any[];
     focusOnMove:boolean;
+    graphMode:boolean = false;  // Toggle between Tree Mode (default) and Graph Mode
 }

@@ -424,6 +424,19 @@ function keepLastIndex(dom) {
     //     range.select();
     // }
 }
+// Connection types for many-to-many relationships
+var ConnectionType;
+(function (ConnectionType) {
+    ConnectionType["PARENT_CHILD"] = "parent-child";
+    ConnectionType["REFERENCE"] = "reference";
+    ConnectionType["RELATED"] = "related";
+    ConnectionType["CAUSES"] = "causes";
+    ConnectionType["CONTRADICTS"] = "contradicts";
+    ConnectionType["SUPPORTS"] = "supports";
+    ConnectionType["DEPENDS_ON"] = "depends-on";
+    ConnectionType["SIMILAR_TO"] = "similar-to";
+    ConnectionType["CUSTOM"] = "custom";
+})(ConnectionType || (ConnectionType = {}));
 class Node$1 {
     constructor(data, mindMap) {
         this.box = {
@@ -453,6 +466,7 @@ class Node$1 {
         this.containEl.setAttribute('tabIndex', '-1');
         this.containEl.setAttribute('data-id', this.data.id);
         this.containEl.setAttribute('draggable', 'false'); // Only draggable when selected
+        this.containEl.setAttribute('data-text', this.data.text); // For graph mode label
         this.contentEl = document.createElement('div');
         this.contentEl.classList.add('mm-node-content');
         this.containEl.appendChild(this.contentEl);
@@ -879,6 +893,10 @@ class Node$1 {
     }
     refreshBox() {
         this.box = this.getDomBox();
+        // Update collapse indicator when box refreshes
+        if (this.children.length > 0) {
+            this.updateCollapseIndicator();
+        }
     }
     getBox() {
         return Object.assign({}, this.box);
@@ -1038,6 +1056,7 @@ class Node$1 {
     }
     setText(text) {
         this.data.text = text;
+        this.containEl.setAttribute('data-text', text); // Update graph mode label
         this.contentEl.innerHTML = '';
         this.parseText();
     }
@@ -1065,6 +1084,7 @@ class Node$1 {
         if (this.containEl.classList.contains('mm-node-collapse')) {
             this.containEl.classList.remove('mm-node-collapse');
         }
+        this.updateCollapseIndicator();
     }
     collapse() {
         this.isExpand = false;
@@ -1082,6 +1102,138 @@ class Node$1 {
         if (!this.containEl.classList.contains('mm-node-collapse')) {
             this.containEl.classList.add('mm-node-collapse');
         }
+        this.updateCollapseIndicator();
+    }
+    // Update collapse indicator with child count
+    updateCollapseIndicator() {
+        if (!this._barDom)
+            return;
+        if (this.children.length > 0) {
+            // Count total descendants (not just direct children)
+            let totalCount = 0;
+            const countDescendants = (node) => {
+                totalCount += node.children.length;
+                node.children.forEach((child) => countDescendants(child));
+            };
+            countDescendants(this);
+            if (!this.isExpand) {
+                // Collapsed - show count
+                this._barDom.setAttribute('data-count', totalCount.toString());
+                this._barDom.style.display = 'block';
+            }
+            else {
+                // Expanded - hide count but keep bar visible
+                this._barDom.removeAttribute('data-count');
+                this._barDom.style.display = 'block';
+            }
+        }
+        else {
+            // No children - hide bar
+            this._barDom.style.display = 'none';
+        }
+    }
+    // ========== CONNECTION MANAGEMENT (Many-to-Many Graph Support) ==========
+    // Initialize connections array if needed
+    ensureConnections() {
+        if (!this.data.connections) {
+            this.data.connections = [];
+        }
+    }
+    // Add a connection from this node to another
+    addConnection(targetNodeId, type = ConnectionType.REFERENCE, label, bidirectional = false) {
+        this.ensureConnections();
+        // Check if connection already exists
+        const existing = this.data.connections.find(c => c.targetId === targetNodeId && c.type === type);
+        if (existing) {
+            return existing;
+        }
+        const connection = {
+            id: `conn-${this.getId()}-${targetNodeId}-${Date.now()}`,
+            sourceId: this.getId(),
+            targetId: targetNodeId,
+            type: type,
+            label: label,
+            bidirectional: bidirectional
+        };
+        this.data.connections.push(connection);
+        return connection;
+    }
+    // Remove a specific connection
+    removeConnection(connectionId) {
+        if (!this.data.connections)
+            return false;
+        const index = this.data.connections.findIndex(c => c.id === connectionId);
+        if (index !== -1) {
+            this.data.connections.splice(index, 1);
+            return true;
+        }
+        return false;
+    }
+    // Remove all connections to a specific target
+    removeConnectionsTo(targetNodeId) {
+        if (!this.data.connections)
+            return 0;
+        const originalLength = this.data.connections.length;
+        this.data.connections = this.data.connections.filter(c => c.targetId !== targetNodeId);
+        return originalLength - this.data.connections.length;
+    }
+    // Get all connections from this node
+    getConnections() {
+        return this.data.connections || [];
+    }
+    // Get connections of a specific type
+    getConnectionsByType(type) {
+        if (!this.data.connections)
+            return [];
+        return this.data.connections.filter(c => c.type === type);
+    }
+    // Get all nodes this node connects to (by ID)
+    getConnectedNodeIds() {
+        if (!this.data.connections)
+            return [];
+        return this.data.connections.map(c => c.targetId);
+    }
+    // Check if connected to a specific node
+    isConnectedTo(targetNodeId) {
+        if (!this.data.connections)
+            return false;
+        return this.data.connections.some(c => c.targetId === targetNodeId);
+    }
+    // Get connection to a specific node
+    getConnectionTo(targetNodeId) {
+        if (!this.data.connections)
+            return undefined;
+        return this.data.connections.find(c => c.targetId === targetNodeId);
+    }
+    // Update connection label
+    setConnectionLabel(connectionId, label) {
+        if (!this.data.connections)
+            return false;
+        const connection = this.data.connections.find(c => c.id === connectionId);
+        if (connection) {
+            connection.label = label;
+            return true;
+        }
+        return false;
+    }
+    // Update connection type
+    setConnectionType(connectionId, type) {
+        if (!this.data.connections)
+            return false;
+        const connection = this.data.connections.find(c => c.id === connectionId);
+        if (connection) {
+            connection.type = type;
+            return true;
+        }
+        return false;
+    }
+    // Get count of all connections
+    getConnectionCount() {
+        return this.data.connections ? this.data.connections.length : 0;
+    }
+    // Clear all connections
+    clearConnections() {
+        this.data.connections = [];
     }
 }
 
@@ -2112,48 +2264,69 @@ class Layout {
                     var x22 = parseInt(childPos.x + childBox.width + '');
                     var y22 = parseInt(childBox.height + childPos.y + '');
                 }
+                // Check if graph mode is enabled for straight lines
+                const isGraphMode = me.mind && me.mind.setting && me.mind.setting.graphMode;
                 if (level == rootLevel) {
-                    var cpx1 = parseInt(from.x + '') + (to.x - from.x) / 9;
-                    var cpy1 = parseInt(from.y + '') + (to.y - from.y) / 9 * 8;
-                    var cpx2 = parseInt(from.x + (to.x - from.x) / 9 * 8 + '');
-                    var cpy2 = parseInt(to.y + '');
-                    var pathStr = `M${x1} ${y1}  C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${x2} ${y2}`;
-                    line1.plot(pathStr);
+                    if (isGraphMode) {
+                        // Graph mode: straight line
+                        var pathStr = `M${x1} ${y1} L${x2} ${y2}`;
+                        line1.plot(pathStr);
+                    }
+                    else {
+                        // Tree mode: curved Bezier
+                        var cpx1 = parseInt(from.x + '') + (to.x - from.x) / 9;
+                        var cpy1 = parseInt(from.y + '') + (to.y - from.y) / 9 * 8;
+                        var cpx2 = parseInt(from.x + (to.x - from.x) / 9 * 8 + '');
+                        var cpy2 = parseInt(to.y + '');
+                        var pathStr = `M${x1} ${y1}  C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${x2} ${y2}`;
+                        line1.plot(pathStr);
+                    }
                 }
                 else {
-                    var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
-                        color: _stroke,
-                        width: lineWidth,
-                        linecap: 'miter',
-                        linejoin: 'miter',
-                        opacity: 0.6
-                    }).fill('none').addClass('mm-connection-line-horizontal');
-                    // Add hover effect for horizontal line
-                    horizontalLine.node.addEventListener('mouseenter', function () {
-                        horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
-                    });
-                    horizontalLine.node.addEventListener('mouseleave', function () {
-                        horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
-                    });
-                    //var c = parseInt((to.y - from.y) / 6+'');
-                    var cpx11 = {
-                        x: from.x + dis / 2,
-                        y: from.y
-                    };
-                    var cpx12 = {
-                        x: from.x + dis / 2,
-                        y: to.y
-                    };
-                    if (direct == 'left') {
-                        cpx11.x = from.x - dis / 2;
-                        cpx12.x = from.x - dis / 2;
+                    if (!isGraphMode) {
+                        // Tree mode: show horizontal connector line
+                        var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
+                            color: _stroke,
+                            width: lineWidth,
+                            linecap: 'miter',
+                            linejoin: 'miter',
+                            opacity: 0.6
+                        }).fill('none').addClass('mm-connection-line-horizontal');
+                        // Add hover effect for horizontal line
+                        horizontalLine.node.addEventListener('mouseenter', function () {
+                            horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
+                        });
+                        horizontalLine.node.addEventListener('mouseleave', function () {
+                            horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
+                        });
                     }
-                    cpx11.x = parseInt(cpx11.x + '');
-                    cpx11.y = parseInt(cpx11.y + '');
-                    cpx12.x = parseInt(cpx12.x + '');
-                    cpx12.y = parseInt(cpx12.y + '');
-                    var path = `M${x1} ${y1}  C ${cpx11.x} ${cpx11.y}, ${cpx12.x} ${cpx12.y}, ${x2} ${y2}`;
-                    line1.plot(path);
+                    if (isGraphMode) {
+                        // Graph mode: straight line
+                        var path = `M${x1} ${y1} L${x2} ${y2}`;
+                        line1.plot(path);
+                    }
+                    else {
+                        // Tree mode: curved Bezier
+                        //var c = parseInt((to.y - from.y) / 6+'');
+                        var cpx11 = {
+                            x: from.x + dis / 2,
+                            y: from.y
+                        };
+                        var cpx12 = {
+                            x: from.x + dis / 2,
+                            y: to.y
+                        };
+                        if (direct == 'left') {
+                            cpx11.x = from.x - dis / 2;
+                            cpx12.x = from.x - dis / 2;
+                        }
+                        cpx11.x = parseInt(cpx11.x + '');
+                        cpx11.y = parseInt(cpx11.y + '');
+                        cpx12.x = parseInt(cpx12.x + '');
+                        cpx12.y = parseInt(cpx12.y + '');
+                        var path = `M${x1} ${y1}  C ${cpx11.x} ${cpx11.y}, ${cpx12.x} ${cpx12.y}, ${x2} ${y2}`;
+                        line1.plot(path);
+                    }
                 }
                 createLine(child);
             });
@@ -8202,6 +8375,130 @@ class Exec {
     }
 }
 
+// Text Input Modal for floating node creation
+class TextInputModal extends obsidian.Modal {
+    constructor(app, placeholder, onSubmit) {
+        super(app);
+        this.placeholder = placeholder;
+        this.onSubmit = onSubmit;
+    }
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl("h3", { text: "Create Floating Node" });
+        new obsidian.Setting(contentEl)
+            .setName("Node text")
+            .addText((text) => text
+            .setPlaceholder(this.placeholder)
+            .onChange((value) => {
+            this.result = value;
+        })
+            .inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.close();
+                if (this.result && this.result.trim()) {
+                    this.onSubmit(this.result.trim());
+                }
+            }
+        }));
+        new obsidian.Setting(contentEl)
+            .addButton((btn) => btn
+            .setButtonText("Create")
+            .setCta()
+            .onClick(() => {
+            this.close();
+            if (this.result && this.result.trim()) {
+                this.onSubmit(this.result.trim());
+            }
+        }))
+            .addButton((btn) => btn
+            .setButtonText("Cancel")
+            .onClick(() => {
+            this.close();
+        }));
+        // Focus the input field
+        setTimeout(() => {
+            const inputEl = contentEl.querySelector('input');
+            if (inputEl) {
+                inputEl.focus();
+            }
+        }, 10);
+    }
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+// Connection Type Selector Modal
+class ConnectionTypeModal extends obsidian.Modal {
+    constructor(app, onSubmit) {
+        super(app);
+        this.connectionType = ConnectionType.REFERENCE;
+        this.label = '';
+        this.bidirectional = false;
+        this.onSubmit = onSubmit;
+    }
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl("h3", { text: "Create Connection" });
+        // Connection Type Dropdown
+        new obsidian.Setting(contentEl)
+            .setName("Connection type")
+            .setDesc("Select the type of relationship")
+            .addDropdown((dropdown) => {
+            dropdown
+                .addOption(ConnectionType.REFERENCE, "Reference (link to related idea)")
+                .addOption(ConnectionType.RELATED, "Related (similar concept)")
+                .addOption(ConnectionType.CAUSES, "Causes (causal relationship)")
+                .addOption(ConnectionType.CONTRADICTS, "Contradicts (opposing idea)")
+                .addOption(ConnectionType.SUPPORTS, "Supports (supporting evidence)")
+                .addOption(ConnectionType.DEPENDS_ON, "Depends On (dependency)")
+                .addOption(ConnectionType.SIMILAR_TO, "Similar To (analogous)")
+                .addOption(ConnectionType.CUSTOM, "Custom (user-defined)")
+                .setValue(this.connectionType)
+                .onChange((value) => {
+                this.connectionType = value;
+            });
+        });
+        // Label Input
+        new obsidian.Setting(contentEl)
+            .setName("Label (optional)")
+            .setDesc("Add a label to describe the connection")
+            .addText((text) => text
+            .setPlaceholder("e.g., 'leads to', 'inspired by'")
+            .onChange((value) => {
+            this.label = value;
+        }));
+        // Bidirectional Checkbox
+        new obsidian.Setting(contentEl)
+            .setName("Bidirectional")
+            .setDesc("Create a two-way connection")
+            .addToggle((toggle) => toggle
+            .setValue(this.bidirectional)
+            .onChange((value) => {
+            this.bidirectional = value;
+        }));
+        // Buttons
+        new obsidian.Setting(contentEl)
+            .addButton((btn) => btn
+            .setButtonText("Create Connection")
+            .setCta()
+            .onClick(() => {
+            this.close();
+            this.onSubmit(this.connectionType, this.label.trim() || undefined, this.bidirectional);
+        }))
+            .addButton((btn) => btn
+            .setButtonText("Cancel")
+            .onClick(() => {
+            this.close();
+        }));
+    }
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
+
 var mind = {};
 var color = ['#fda16c', '#74bdf7', '#71FF5E', 'orange', '#D4D4AA', 'yellow'];
 var canvasWidth = 8000;
@@ -8447,7 +8744,8 @@ let deleteIcon = '<svg class="icon" width="16px" height="16.00px" viewBox="0 0 1
 let addIcon = '<svg class="icon" width="16px" height="16.00px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg"><path  d="M512 1024C230.4 1024 0 793.6 0 512S230.4 0 512 0s512 230.4 512 512-230.4 512-512 512z m0-960C265.6 64 64 265.6 64 512s201.6 448 448 448 448-201.6 448-448S758.4 64 512 64z"  /><path d="M800 544H224c-19.2 0-32-12.8-32-32s12.8-32 32-32h576c19.2 0 32 12.8 32 32s-12.8 32-32 32z"  /><path  d="M512 832c-19.2 0-32-12.8-32-32V224c0-19.2 12.8-32 32-32s32 12.8 32 32v576c0 19.2-12.8 32-32 32z"  /></svg>';
 let tempDispLevel = 0;
 class MindMap {
-    constructor(data, containerEL, setting) {
+    constructor(data, containerEL, setting, app) {
+        this.roots = []; // Support multiple root nodes
         this._nodeNum = 0;
         this._tempNum = 0;
         this.colors = [];
@@ -8458,6 +8756,22 @@ class MindMap {
         this._dragoverCount = 0;
         this.isComposing = false;
         this.isFocused = true;
+        this._nodeDragMode = false;
+        this._currentDropTarget = null;
+        this._isReparentDrag = false; // Alt+drag for reparenting vs normal drag for positioning
+        this._dragStartPos = null; // Original position of dragged node
+        this._rafId = null; // RequestAnimationFrame ID for throttling refresh during drag
+        this._forcedReparentMode = false; // Manual toggle for reparent mode (Ctrl+Shift+D)
+        this._autoReparentFloating = false; // Floating nodes auto-enter reparent mode
+        this._lastMouseX = 0; // Track last mouse position for instant node creation
+        this._lastMouseY = 0;
+        this.selectedNodes = []; // Multi-select support
+        this._nodeCreationCount = 0; // Counter for auto-spacing created nodes
+        this._lastCreationPosition = null; // Last node creation position
+        this._connectionMode = false; // Whether in connection creation mode
+        this._connectionSourceNode = null; // Source node when creating connection
+        this._dragThreshold = 5; // Minimum pixels to move before drag starts (prevents double-click issues)
+        this._hasDragStarted = false; // Track if drag has actually started
         this.setting = Object.assign({
             theme: 'default',
             //canvasSize: 8000,
@@ -8470,10 +8784,15 @@ class MindMap {
             layoutDirect: ''
         }, setting || {});
         this.data = data;
+        this.app = app;
         this.appEl = document.createElement('div');
         this.appEl.classList.add('mm-mindmap');
         this.appEl.classList.add(`mm-theme-${this.setting.theme}`);
         this.appEl.style.overflow = "auto";
+        // Apply graph mode class if enabled
+        if (this.setting.graphMode) {
+            this.appEl.classList.add('mm-graph-mode');
+        }
         this.contentEL = document.createElement('div');
         this.contentEL.style.position = "relative";
         this.contentEL.style.width = "100%";
@@ -8501,8 +8820,10 @@ class MindMap {
         this.contentEL.appendChild(this._menuDom);
         //history
         this.exec = new Exec();
-        // link line
+        // link line (hierarchical tree connections)
         this.edgeGroup = this.draw.group();
+        // connection group (many-to-many graph connections)
+        this.connectionGroup = this.draw.group();
         this.appClickFn = this.appClickFn.bind(this);
         this.appDragstart = this.appDragstart.bind(this);
         this.appDragend = this.appDragend.bind(this);
@@ -8551,22 +8872,22 @@ class MindMap {
     init(collapsedIds) {
         var that = this;
         var data = this.data;
-        var x = this.setting.canvasSize / 2 - 60;
-        var y = this.setting.canvasSize / 2 - 200;
         var waitCollapseNodes = [];
-        function initNode(d, isRoot, p) {
+        // Calculate positions for multiple roots
+        const rootSpacing = 800; // Horizontal spacing between roots
+        const startX = this.setting.canvasSize / 2 - 60;
+        const startY = this.setting.canvasSize / 2 - 200;
+        function initNode(d, isRoot, rootIndex, p) {
             that._nodeNum++;
             var n = new Node$1(d, that);
-            // if (collapsedIds && collapsedIds.includes(n.getId())) {
-            //     n.isExpand = false;
-            // }
-            // if (p && (!p.isExpand || p.isHide)) {
-            //     n.isHide = true;
-            // }
             that.contentEL.appendChild(n.containEl);
             if (isRoot) {
+                // Position roots horizontally spaced apart
+                const x = startX + (rootIndex * rootSpacing);
+                const y = startY;
                 n.setPosition(x, y);
-                that.root = n;
+                that.root = n; // Keep backward compatibility - points to first root
+                that.roots.push(n);
                 n.data.isRoot = true;
             }
             else {
@@ -8581,11 +8902,12 @@ class MindMap {
             n.refreshBox();
             if (d.children && d.children.length) {
                 d.children.forEach((dd) => {
-                    initNode(dd, false, n);
+                    initNode(dd, false, rootIndex, n);
                 });
             }
         }
-        initNode(data, true);
+        // Initialize the main root
+        initNode(data, true, 0);
         if (waitCollapseNodes.length) {
             waitCollapseNodes.forEach(n => {
                 n.collapse();
@@ -8593,15 +8915,33 @@ class MindMap {
         }
     }
     traverseBF(callback, node) {
-        var array = [];
-        array.push(node || this.root);
-        var currentNode = array.shift();
-        while (currentNode) {
-            for (let i = 0, len = currentNode.children.length; i < len; i++) {
-                array.push(currentNode.children[i]);
+        if (node) {
+            // Traverse from specific node
+            var array = [];
+            array.push(node);
+            var currentNode = array.shift();
+            while (currentNode) {
+                for (let i = 0, len = currentNode.children.length; i < len; i++) {
+                    array.push(currentNode.children[i]);
+                }
+                callback(currentNode);
+                currentNode = array.shift();
             }
-            callback(currentNode);
-            currentNode = array.shift();
+        }
+        else {
+            // Traverse all roots
+            this.roots.forEach(root => {
+                var array = [];
+                array.push(root);
+                var currentNode = array.shift();
+                while (currentNode) {
+                    for (let i = 0, len = currentNode.children.length; i < len; i++) {
+                        array.push(currentNode.children[i]);
+                    }
+                    callback(currentNode);
+                    currentNode = array.shift();
+                }
+            });
         }
     }
     traverseDF(callback, node, cbFirst) {
@@ -8620,7 +8960,13 @@ class MindMap {
                 }
             }
         }
-        recurse(node || this.root);
+        if (node) {
+            recurse(node);
+        }
+        else {
+            // Traverse all roots
+            this.roots.forEach(root => recurse(root));
+        }
     }
     getNodeById(id) {
         var snode = null;
@@ -8643,6 +8989,9 @@ class MindMap {
             }
             this.editNode = null;
         }
+        // Clear multi-select
+        this.selectedNodes.forEach(node => node.unSelect());
+        this.selectedNodes = [];
         // if(this.selectingNodes)
         // {// Add the node to the selectedNodes
         //     this.selectedNodes.push(this.selectNode);
@@ -8674,10 +9023,12 @@ class MindMap {
         // CRITICAL: Also add to document to catch all drag events
         document.addEventListener('dragover', this.appDragover);
         document.addEventListener('drop', this.appDrop);
-        document.addEventListener('keyup', this.appKeyup);
-        document.addEventListener('keydown', this.appKeydown);
-        document.addEventListener('compositionstart', this.compositionStart);
-        document.addEventListener('compositionend', this.compositionEnd);
+        // COMPLETELY DISABLED: Keyboard listeners are breaking typing in Obsidian
+        // TODO: Re-implement with proper scoping
+        // this.appEl.addEventListener('keyup', this.appKeyup);
+        // this.appEl.addEventListener('keydown', this.appKeydown);
+        // this.appEl.addEventListener('compositionstart',this.compositionStart)
+        // this.appEl.addEventListener('compositionend',this.compositionEnd)
         document.body.addEventListener('mousewheel', this.appMousewheel);
         if (obsidian.Platform.isDesktop) {
             this.appEl.addEventListener('mousedown', this.appMouseDown);
@@ -8702,10 +9053,11 @@ class MindMap {
         // Remove document listeners
         document.removeEventListener('dragover', this.appDragover);
         document.removeEventListener('drop', this.appDrop);
-        document.removeEventListener('keyup', this.appKeyup);
-        document.removeEventListener('keydown', this.appKeydown);
-        document.removeEventListener('compositionstart', this.compositionStart);
-        document.removeEventListener('compositionend', this.compositionEnd);
+        // Keyboard listeners are disabled
+        // this.appEl.removeEventListener('keyup', this.appKeyup);
+        // this.appEl.removeEventListener('keydown', this.appKeydown);
+        // this.appEl.removeEventListener('compositionstart',this.compositionStart)
+        // this.appEl.removeEventListener('compositionend',this.compositionEnd)
         document.body.removeEventListener('mousewheel', this.appMousewheel);
         if (obsidian.Platform.isDesktop) {
             this.appEl.removeEventListener('mousedown', this.appMouseDown);
@@ -8749,8 +9101,20 @@ class MindMap {
         this.isFocused = false;
     }
     appKeydown(e) {
-        if (!this.isFocused)
-            return; // Check if Mindmap is in focus or not
+        // CRITICAL: If any node is being edited, don't intercept keyboard events
+        if (this.editNode && this.editNode.data.isEdit) {
+            return;
+        }
+        // CRITICAL: Don't intercept if target is an input/textarea/contenteditable
+        const target = e.target;
+        if (target && (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)) {
+            return;
+        }
+        if (!this.isFocused) {
+            return;
+        }
         e.keyCode || e.which || e.charCode;
         e.ctrlKey || e.metaKey;
         e.shiftKey;
@@ -8782,8 +9146,20 @@ class MindMap {
         this.isComposing = false;
     }
     appKeyup(e) {
-        if (!this.isFocused)
-            return; // Check if Mindmap is in focus or not
+        // CRITICAL: If any node is being edited, don't intercept keyboard events
+        if (this.editNode && this.editNode.data.isEdit) {
+            return;
+        }
+        // CRITICAL: Don't intercept if target is an input/textarea/contenteditable
+        const target = e.target;
+        if (target && (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)) {
+            return;
+        }
+        if (!this.isFocused) {
+            return;
+        }
         var keyCode = e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
         var shiftKey = e.shiftKey;
@@ -8857,6 +9233,11 @@ class MindMap {
             if (keyCode == 27) {
                 e.preventDefault();
                 e.stopPropagation();
+                // Exit connection mode if active
+                if (this._connectionMode) {
+                    this.exitConnectionMode();
+                    return;
+                }
                 var node = this.selectNode;
                 if (node && node.data.isEdit) {
                     node.select();
@@ -9517,11 +9898,17 @@ class MindMap {
                     this.view.app.workspace.openLinkText(href, this.view.file.path, evt.ctrlKey || evt.metaKey);
                 }
             }
-            if (targetEl.hasClass('mm-node-bar')) {
+            if (targetEl.hasClass('mm-node-bar') || targetEl.closest('.mm-node-bar')) {
                 evt.preventDefault();
                 evt.stopPropagation();
-                var id = targetEl.closest('.mm-node').getAttribute('data-id');
+                const barEl = targetEl.hasClass('mm-node-bar') ? targetEl : targetEl.closest('.mm-node-bar');
+                var id = barEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+                if (!node) {
+                    console.warn('[COLLAPSE] Node not found for id:', id);
+                    return;
+                }
+                console.log('[COLLAPSE] Toggle collapse for:', node.data.text, 'isExpand:', node.isExpand);
                 if (node.isExpand) {
                     node.mindmap.execute('collapseNode', {
                         node
@@ -9544,7 +9931,7 @@ class MindMap {
                 }
                 if (targetEl.closest('.mm-icon-delete-node')) {
                     var selectNode = this.selectNode;
-                    if (!node.data.isRoot && selectNode) {
+                    if (selectNode && !selectNode.data.isRoot) {
                         selectNode.mindmap.execute("deleteNodeAndChild", { node: selectNode });
                         this._menuDom.style.display = 'none';
                     }
@@ -9554,18 +9941,68 @@ class MindMap {
             if (targetEl.closest('.mm-node')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
-                if (!node.isSelect) {
-                    this.clearSelectNode();
-                    this.selectNode = node;
-                    (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.select();
-                    // this._menuDom.style.display='block';
-                    this._menuDom.style.display = 'none';
-                    this.selectNode.getBox();
-                    // this._menuDom.style.left = `${box.x + box.width + 10}px`;
-                    // this._menuDom.style.top = `${box.y + box.height/2 - 14}px`;
+                if (!node) {
+                    console.warn('[CLICK] Node not found for id:', id);
+                    return;
+                }
+                console.log('[CLICK] Node clicked:', {
+                    nodeText: node.data.text,
+                    isRoot: node.data.isRoot,
+                    isSelected: node.isSelect,
+                    shiftKey: evt.shiftKey
+                });
+                // Shift-click for multi-select
+                if (evt.shiftKey) {
+                    if (node.isSelect) {
+                        // Deselect if already selected
+                        const index = this.selectedNodes.indexOf(node);
+                        if (index > -1) {
+                            this.selectedNodes.splice(index, 1);
+                        }
+                        node.unSelect();
+                        if (this.selectedNodes.length > 0) {
+                            this.selectNode = this.selectedNodes[0];
+                        }
+                        else {
+                            this.selectNode = null;
+                        }
+                    }
+                    else {
+                        // Add to selection
+                        if (!this.selectedNodes.includes(node)) {
+                            this.selectedNodes.push(node);
+                        }
+                        node.select();
+                        this.selectNode = node; // Keep track of last selected
+                    }
+                    console.log('[CLICK] Multi-select:', this.selectedNodes.length, 'nodes selected');
+                }
+                else {
+                    // Check if we're in connection creation mode
+                    if (this._connectionMode) {
+                        console.log('[CONNECTION] Creating connection to target node');
+                        this.handleConnectionModeClick(node);
+                        return;
+                    }
+                    // Normal click - single select
+                    if (!node.isSelect) {
+                        console.log('[CLICK] Selecting node');
+                        this.clearSelectNode();
+                        this.selectNode = node;
+                        this.selectedNodes = [node];
+                        (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.select();
+                        this._menuDom.style.display = 'none';
+                        this.selectNode.getBox();
+                    }
+                    else if (node.data.isRoot) {
+                        // If clicking on an already selected root node, toggle collapse all
+                        console.log('[CLICK] Root node already selected - toggling collapse');
+                        this.toggleCollapseRoot(node);
+                    }
                 }
             }
             else {
+                console.log('[CLICK] Clicked outside nodes - clearing selection');
                 this.clearSelectNode();
                 this._menuDom.style.display = 'none';
             }
@@ -9584,6 +10021,10 @@ class MindMap {
             if (evt.target.closest('.mm-node')) {
                 var id = evt.target.closest('.mm-node').getAttribute('data-id');
                 this._dragNode = this.getNodeById(id);
+                if (!this._dragNode) {
+                    console.warn('[DRAG] Node not found for id:', id);
+                    return;
+                }
                 this.drag = true;
                 console.log('Drag started for node:', this._dragNode.data.text);
                 // Add visual feedback for dragging
@@ -9820,6 +10261,9 @@ class MindMap {
     }
     appMouseMove(evt) {
         const targetEl = evt.target;
+        // Track mouse position for instant node creation
+        this._lastMouseX = evt.clientX;
+        this._lastMouseY = evt.clientY;
         this.scalePointer = [];
         this.scalePointer.push(evt.offsetX, evt.offsetY);
         if (targetEl.closest('.mm-node')) {
@@ -9831,16 +10275,208 @@ class MindMap {
                 this.scalePointer.push(box.x + box.width / 2, box.y + box.height / 2);
             }
         }
-        else {
-            if (this.drag) {
-                this.containerEL.scrollLeft = this._left - (evt.pageX - this.startX);
-                this.containerEL.scrollTop = this._top - (evt.pageY - this.startY);
+        // Handle node dragging (or check if we should start dragging)
+        if (this._dragNode) {
+            var x = evt.pageX;
+            var y = evt.pageY;
+            // Check if we've exceeded the drag threshold
+            if (!this._hasDragStarted) {
+                const deltaX = x - this.startX;
+                const deltaY = y - this.startY;
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                if (distance > this._dragThreshold) {
+                    // START the drag now
+                    console.log(`[DRAG] Threshold exceeded (${distance.toFixed(1)}px > ${this._dragThreshold}px), starting drag`);
+                    this._hasDragStarted = true;
+                    this._nodeDragMode = true;
+                    this.drag = true;
+                    // Add visual feedback for dragging
+                    this._dragNode.containEl.classList.add('mm-dragging');
+                    this.appEl.classList.add('mm-dragging-active');
+                    // Make SVG pass-through during drag
+                    const svgElement = this.contentEL.querySelector('svg');
+                    if (svgElement) {
+                        svgElement.style.pointerEvents = 'none';
+                    }
+                    console.log(`[DRAG] Node drag STARTED for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
+                }
+                else {
+                    // Haven't moved enough yet - don't do anything
+                    return;
+                }
             }
+            // Account for zoom scale when calculating delta
+            const scale = this.mindScale / 100;
+            this.dx = (x - this.startX) / scale;
+            this.dy = (y - this.startY) / scale;
+            // Only process drag logic if drag has actually started
+            if (!this._hasDragStarted) {
+                return;
+            }
+            // Check if Alt key is still pressed OR forced mode (in case user pressed it during drag)
+            if (!this._isReparentDrag && (evt.altKey || evt.metaKey || this._forcedReparentMode)) {
+                console.log('[DRAG] Switching to REPARENT mode', {
+                    altKey: evt.altKey,
+                    metaKey: evt.metaKey,
+                    forcedMode: this._forcedReparentMode
+                });
+                this._isReparentDrag = true;
+            }
+            else if (this._isReparentDrag && !evt.altKey && !evt.metaKey && !this._forcedReparentMode && !this._autoReparentFloating) {
+                console.log('[DRAG] Switching to POSITION mode');
+                this._isReparentDrag = false;
+            }
+            if (this._isReparentDrag) {
+                // Alt+drag: Reparenting mode - show drop targets
+                console.log('[DRAG] Reparenting mode active');
+                // Remove previous drop target highlighting
+                this.traverseDF((node) => {
+                    node.containEl.classList.remove('mm-drop-target');
+                });
+                // Find the node under the cursor using manual bounding box check
+                // This is more reliable than elementFromPoint with transforms/scaling
+                let dropNode = null;
+                this.traverseDF((node) => {
+                    if (node === this._dragNode)
+                        return; // Skip dragged node
+                    const rect = node.containEl.getBoundingClientRect();
+                    if (evt.clientX >= rect.left && evt.clientX <= rect.right &&
+                        evt.clientY >= rect.top && evt.clientY <= rect.bottom) {
+                        dropNode = node;
+                    }
+                });
+                console.log('[DRAG] Looking for drop target:', {
+                    foundDropNode: !!dropNode,
+                    dropNodeText: dropNode === null || dropNode === void 0 ? void 0 : dropNode.data.text,
+                    mousePos: { x: evt.clientX, y: evt.clientY },
+                    allNodesCount: document.querySelectorAll('.mm-node').length
+                });
+                if (dropNode) {
+                    console.log('[DRAG] Valid drop target:', dropNode.data.text);
+                    var box = dropNode.getBox();
+                    // Use clientX/Y for _getDragType since it uses getBoundingClientRect
+                    this._dragType = this._getDragType(dropNode, evt.clientX, evt.clientY);
+                    this._indicateDom.style.display = 'block';
+                    this._indicateDom.style.left = box.x + box.width / 2 - 40 / 2 + 'px';
+                    this._indicateDom.style.top = box.y - 90 + 'px';
+                    this._indicateDom.className = 'mm-node-layout-indicate';
+                    // Highlight the drop target node
+                    dropNode.containEl.classList.add('mm-drop-target');
+                    this._currentDropTarget = dropNode;
+                    if (this._dragType == 'top') {
+                        this._indicateDom.classList.add('mm-arrow-top');
+                    }
+                    else if (this._dragType == 'down') {
+                        this._indicateDom.classList.add('mm-arrow-down');
+                    }
+                    else if (this._dragType == 'left') {
+                        this._indicateDom.classList.add('mm-arrow-left');
+                    }
+                    else if (this._dragType == 'right') {
+                        this._indicateDom.classList.add('mm-arrow-right');
+                    }
+                    else {
+                        this._indicateDom.classList.add('drag-type');
+                        var arr = this._dragType.split('-');
+                        if (arr[1]) {
+                            this._indicateDom.classList.add('mm-arrow-' + arr[1]);
+                        }
+                        else {
+                            this._indicateDom.classList.add('mm-arrow-right');
+                        }
+                    }
+                }
+                else {
+                    this._indicateDom.style.display = 'none';
+                    this._currentDropTarget = null;
+                }
+            }
+            else {
+                // Normal drag: Position mode - move node freely
+                const newX = this._dragStartPos.x + this.dx;
+                const newY = this._dragStartPos.y + this.dy;
+                // Mark as floating and update data immediately so restoreFloatingPositions() works
+                this._dragNode.data.isFloating = true;
+                this._dragNode.data.floatingX = newX;
+                this._dragNode.data.floatingY = newY;
+                // Update node position in real-time
+                this._dragNode.setPosition(newX, newY);
+                // Throttle refresh using requestAnimationFrame to redraw connection lines
+                if (!this._rafId) {
+                    this._rafId = requestAnimationFrame(() => {
+                        this.refresh();
+                        this._rafId = null;
+                    });
+                }
+                // Hide reparenting indicators
+                this._indicateDom.style.display = 'none';
+                this._currentDropTarget = null;
+            }
+        }
+        // Handle canvas panning
+        else if (this.drag && !this._nodeDragMode) {
+            this.containerEL.scrollLeft = this._left - (evt.pageX - this.startX);
+            this.containerEL.scrollTop = this._top - (evt.pageY - this.startY);
         }
     }
     appMouseDown(evt) {
         const targetEl = evt.target;
-        if (!targetEl.closest('.mm-node')) {
+        // Don't start drag if we're in connection mode - let click handler deal with it
+        if (this._connectionMode) {
+            console.log('[DRAG] In connection mode - skipping drag setup');
+            return;
+        }
+        // Don't start drag if clicking on collapse button - let click handler deal with it
+        if (targetEl.hasClass('mm-node-bar') || targetEl.closest('.mm-node-bar')) {
+            console.log('[DRAG] Clicked on collapse button - skipping drag');
+            return;
+        }
+        const nodeEl = targetEl.closest('.mm-node');
+        console.log('[DRAG] appMouseDown fired', {
+            hasNodeEl: !!nodeEl,
+            altKey: evt.altKey,
+            metaKey: evt.metaKey,
+            ctrlKey: evt.ctrlKey,
+            shiftKey: evt.shiftKey,
+            target: evt.target
+        });
+        if (nodeEl) {
+            // ALL nodes are now draggable
+            const nodeId = nodeEl.getAttribute('data-id');
+            this._dragNode = this.getNodeById(nodeId);
+            if (!this._dragNode) {
+                console.warn('[DRAG] Node not found for id:', nodeId);
+                return;
+            }
+            // For graph-mode connections, nodes should be freely movable by default
+            // Only enter reparent mode when Alt/Cmd is held OR forced mode is enabled
+            this._isReparentDrag = evt.altKey || evt.metaKey || this._forcedReparentMode;
+            console.log('[DRAG] Drag PREPARED (not started yet):', {
+                nodeText: this._dragNode.data.text,
+                isReparentDrag: this._isReparentDrag,
+                altKey: evt.altKey,
+                metaKey: evt.metaKey,
+                forcedReparentMode: this._forcedReparentMode,
+                isFloating: this._dragNode.data.isFloating,
+                hasParent: !!this._dragNode.parent
+            });
+            // DON'T start drag yet - just prepare for it
+            // Drag will start in appMouseMove if movement exceeds threshold
+            this._nodeDragMode = false; // Will be set to true after threshold
+            this.drag = false; // Will be set to true after threshold
+            this._hasDragStarted = false; // Track if we actually start dragging
+            this.startX = evt.pageX;
+            this.startY = evt.pageY;
+            // Store original position for position drag
+            const pos = this._dragNode.getPosition();
+            this._dragStartPos = { x: pos.x, y: pos.y };
+            console.log(`[DRAG] Waiting for movement beyond ${this._dragThreshold}px threshold`);
+            evt.preventDefault();
+            evt.stopPropagation();
+        }
+        else {
+            // Start canvas panning mode
+            console.log('[DRAG] Canvas panning mode started');
             this.drag = true;
             this.startX = evt.pageX;
             this.startY = evt.pageY;
@@ -9849,25 +10485,157 @@ class MindMap {
         }
     }
     appMouseUp(evt) {
-        this.drag = false;
-    }
-    appDblclickFn(evt) {
-        var _a;
-        if (evt.target instanceof HTMLElement) {
-            if (evt.target.hasClass('mm-node-bar')) {
-                evt.preventDefault();
-                evt.stopPropagation();
-                return;
-            }
-            if (evt.target.closest('.mm-node') instanceof HTMLElement) {
-                var id = evt.target.closest('.mm-node').getAttribute('data-id');
-                this.selectNode = this.getNodeById(id);
-                if (!this.editNode || (this.editNode && this.editNode != this.selectNode)) {
-                    (_a = this.selectNode) === null || _a === void 0 ? void 0 : _a.edit();
-                    this.editNode = this.selectNode;
-                    this._menuDom.style.display = 'none';
+        var _a, _b;
+        console.log('[DRAG] appMouseUp fired', {
+            nodeDragMode: this._nodeDragMode,
+            hasDragNode: !!this._dragNode,
+            hasDragStarted: this._hasDragStarted,
+            dragNodeText: (_a = this._dragNode) === null || _a === void 0 ? void 0 : _a.data.text,
+            isReparentDrag: this._isReparentDrag,
+            hasDropTarget: !!this._currentDropTarget,
+            dropTargetText: (_b = this._currentDropTarget) === null || _b === void 0 ? void 0 : _b.data.text,
+            dragType: this._dragType
+        });
+        // If we have a drag node but drag never started (below threshold),
+        // just clean up and allow click/double-click to proceed
+        if (this._dragNode && !this._hasDragStarted) {
+            console.log('[DRAG] Drag never started (below threshold) - treating as click/double-click');
+            this._dragNode = null;
+            this._nodeDragMode = false;
+            this._hasDragStarted = false;
+            this.drag = false;
+            return; // Let click/double-click handlers work
+        }
+        // Handle node drop
+        if (this._nodeDragMode && this._dragNode) {
+            if (this._isReparentDrag && this._currentDropTarget) {
+                // Alt+drag: Reparent the node
+                console.log('[DRAG] Executing reparent operation:', {
+                    dragNode: this._dragNode.data.text,
+                    dropTarget: this._currentDropTarget.data.text,
+                    dragType: this._dragType
+                });
+                if (this._dragNode.data.isRoot) {
+                    console.log('Cannot reparent root node');
+                    new obsidian.Notice('Cannot reparent root node');
+                    // Restore original position
+                    this._dragNode.setPosition(this._dragStartPos.x, this._dragStartPos.y);
+                }
+                else {
+                    if (evt.ctrlKey || evt.metaKey) {
+                        // Ctrl/Cmd key pressed: copy the node
+                        console.log('Copying node');
+                        let copiedNode = this.copyNode(this._dragNode);
+                        this._currentDropTarget.select();
+                        this.pasteNode(copiedNode);
+                        new obsidian.Notice(`Copied "${this._dragNode.data.text}"`);
+                    }
+                    else {
+                        // Move the node in hierarchy
+                        console.log('Moving node with type:', this._dragType);
+                        this.moveNode(this._dragNode, this._currentDropTarget, this._dragType);
+                        // Clear floating state after successful reparent
+                        if (this._dragNode.data.isFloating) {
+                            this._dragNode.data.isFloating = false;
+                            delete this._dragNode.data.floatingX;
+                            delete this._dragNode.data.floatingY;
+                            // Remove from roots array if present
+                            const index = this.roots.indexOf(this._dragNode);
+                            if (index > -1) {
+                                this.roots.splice(index, 1);
+                                console.log('[DRAG] Removed floating node from roots array');
+                            }
+                        }
+                        new obsidian.Notice(`Moved "${this._dragNode.data.text}"`);
+                    }
                 }
             }
+            else if (!this._isReparentDrag) {
+                // Normal drag: Save new floating position
+                const pos = this._dragNode.getPosition();
+                console.log(`Node positioned at: ${pos.x}, ${pos.y}`);
+                // Mark as floating and save position
+                this._dragNode.data.isFloating = true;
+                this._dragNode.data.floatingX = pos.x;
+                this._dragNode.data.floatingY = pos.y;
+                this.mindMapChange();
+            }
+        }
+        // Clean up drag state
+        if (this._nodeDragMode) {
+            console.log('Node drag mode ended');
+            this._indicateDom.style.display = 'none';
+            this._menuDom.style.display = 'none';
+            // Cancel any pending animation frame
+            if (this._rafId) {
+                cancelAnimationFrame(this._rafId);
+                this._rafId = null;
+            }
+            // Final refresh to ensure lines are correctly drawn
+            this.refresh();
+            // Remove dragging visual feedback
+            if (this._dragNode) {
+                this._dragNode.containEl.classList.remove('mm-dragging');
+            }
+            this.appEl.classList.remove('mm-dragging-active');
+            // Restore SVG pointer events
+            const svgElement = this.contentEL.querySelector('svg');
+            if (svgElement) {
+                svgElement.style.pointerEvents = 'auto';
+            }
+            // Remove drop target highlighting from all nodes
+            this.traverseDF((node) => {
+                node.containEl.classList.remove('mm-drop-target');
+            });
+            this._currentDropTarget = null;
+            this._nodeDragMode = false;
+            this._isReparentDrag = false;
+            this._autoReparentFloating = false;
+            this._dragStartPos = null;
+            this._hasDragStarted = false; // Reset for next drag
+        }
+        this.drag = false;
+        this._dragNode = null; // Clear drag node reference
+    }
+    appDblclickFn(evt) {
+        var _a, _b;
+        console.log('[DBLCLICK] Double-click detected', evt.target);
+        if (!(evt.target instanceof HTMLElement)) {
+            console.log('[DBLCLICK] Target is not HTMLElement');
+            return;
+        }
+        console.log('[DBLCLICK] Target is HTMLElement:', evt.target.className);
+        if (evt.target.hasClass('mm-node-bar')) {
+            console.log('[DBLCLICK] Clicked on collapse bar - ignoring');
+            evt.preventDefault();
+            evt.stopPropagation();
+            return;
+        }
+        const nodeEl = evt.target.closest('.mm-node');
+        console.log('[DBLCLICK] Closest node element:', nodeEl);
+        if (nodeEl instanceof HTMLElement) {
+            var id = nodeEl.getAttribute('data-id');
+            console.log('[DBLCLICK] Node id:', id);
+            const node = this.getNodeById(id);
+            if (!node) {
+                console.warn('[DBLCLICK] Node not found for id:', id);
+                return;
+            }
+            this.selectNode = node;
+            console.log('[DBLCLICK] Found node:', node.data.text, 'editNode:', (_a = this.editNode) === null || _a === void 0 ? void 0 : _a.data.text);
+            if (!this.editNode || (this.editNode && this.editNode != this.selectNode)) {
+                console.log('[DBLCLICK] Calling edit() on node');
+                (_b = this.selectNode) === null || _b === void 0 ? void 0 : _b.edit();
+                this.editNode = this.selectNode;
+                this._menuDom.style.display = 'none';
+            }
+            else {
+                console.log('[DBLCLICK] Skipping edit - already editing this node');
+            }
+        }
+        else {
+            console.log('[DBLCLICK] Did not find .mm-node parent - you clicked on empty canvas');
+            new obsidian.Notice('💡 Double-click directly on a node box to edit it', 3000);
         }
     }
     appMousewheel(evt) {
@@ -9911,6 +10679,189 @@ class MindMap {
         this.clearNode();
         this.removeEvent();
         (_a = this.draw) === null || _a === void 0 ? void 0 : _a.clear();
+    }
+    // Add a new root node to the canvas
+    addNewRoot(text) {
+        const rootIndex = this.roots.length;
+        const rootSpacing = 800;
+        const startX = this.setting.canvasSize / 2 - 60;
+        const startY = this.setting.canvasSize / 2 - 200;
+        const newRootData = {
+            id: uuid(),
+            text: text || `New Map ${rootIndex + 1}`,
+            children: [],
+            isRoot: true,
+            expanded: true
+        };
+        const newRoot = new Node$1(newRootData, this);
+        const x = startX + (rootIndex * rootSpacing);
+        const y = startY;
+        newRoot.setPosition(x, y);
+        newRoot.data.isRoot = true;
+        this.roots.push(newRoot);
+        this.contentEL.appendChild(newRoot.containEl);
+        newRoot.refreshBox();
+        this.refresh();
+        this.mindMapChange();
+        return newRoot;
+    }
+    // Convert screen coordinates to canvas coordinates
+    screenToCanvasCoords(clientX, clientY) {
+        const rect = this.appEl.getBoundingClientRect();
+        const scale = this.mindScale / 100;
+        // Account for scroll position and zoom scale
+        const canvasX = (clientX - rect.left + this.containerEL.scrollLeft) / scale;
+        const canvasY = (clientY - rect.top + this.containerEL.scrollTop) / scale;
+        return { x: canvasX, y: canvasY };
+    }
+    // Check if a position collides with any existing node
+    checkCollision(x, y, padding = 50) {
+        let collision = false;
+        this.traverseDF((node) => {
+            const pos = node.getPosition();
+            const dim = node.getDimensions();
+            // Check bounding box collision with padding
+            if (x < pos.x + dim.x + padding &&
+                x + 200 > pos.x - padding && // Assume ~200px width for new node
+                y < pos.y + dim.y + padding &&
+                y + 60 > pos.y - padding) { // Assume ~60px height for new node
+                collision = true;
+            }
+        });
+        return collision;
+    }
+    // Find non-overlapping position for new node
+    findEmptyPosition(startX, startY) {
+        const spacingX = 300; // Large horizontal spacing
+        const spacingY = 200; // Large vertical spacing
+        const maxAttempts = 20;
+        // Try grid positions in a spiral pattern
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const col = (attempt % 4) - 1; // -1, 0, 1, 2
+            const row = Math.floor(attempt / 4);
+            const testX = startX + (col * spacingX);
+            const testY = startY + (row * spacingY);
+            if (!this.checkCollision(testX, testY, 80)) {
+                return { x: testX, y: testY };
+            }
+        }
+        // If all attempts fail, just offset far to the right
+        return { x: startX + (spacingX * 3), y: startY };
+    }
+    // Create node at cursor position (instant capture)
+    createNodeAtCursor(text = '') {
+        let coords = this._lastMouseX && this._lastMouseY
+            ? this.screenToCanvasCoords(this._lastMouseX, this._lastMouseY)
+            : { x: this.setting.canvasSize / 2, y: this.setting.canvasSize / 2 };
+        // Check if position is empty, if not find an empty spot
+        if (this.checkCollision(coords.x, coords.y)) {
+            console.log('[CREATE] Position occupied, finding empty spot...');
+            coords = this.findEmptyPosition(coords.x, coords.y);
+            console.log('[CREATE] Found empty position at:', coords);
+        }
+        // Store for next creation
+        this._lastCreationPosition = { x: coords.x, y: coords.y };
+        // Don't auto-refresh yet - we'll do it after selection
+        const node = this.addFloatingNode(text, coords.x, coords.y, false);
+        // Select the node BEFORE refresh so selection persists
+        this.clearSelectNode();
+        this.selectNode = node;
+        node.select();
+        // Now refresh with the node already selected
+        this.refresh();
+        this.mindMapChange();
+        // Enter edit mode after refresh completes
+        setTimeout(() => {
+            if (!node.data.isEdit) {
+                node.edit();
+            }
+        }, 100);
+        return node;
+    }
+    // Add a floating node (no parent, custom position)
+    addFloatingNode(text, x, y, autoRefresh = true) {
+        // Use provided position or canvas center
+        const posX = x !== undefined ? x : this.setting.canvasSize / 2;
+        const posY = y !== undefined ? y : this.setting.canvasSize / 2;
+        const floatingNodeData = {
+            id: uuid(),
+            text: text,
+            children: [],
+            isRoot: false,
+            expanded: true,
+            isFloating: true,
+            floatingX: posX,
+            floatingY: posY
+        };
+        const floatingNode = new Node$1(floatingNodeData, this);
+        floatingNode.setPosition(posX, posY);
+        this.contentEL.appendChild(floatingNode.containEl);
+        floatingNode.refreshBox();
+        // Add to roots array so it gets traversed (but not marked as isRoot)
+        this.roots.push(floatingNode);
+        if (autoRefresh) {
+            this.refresh();
+            this.mindMapChange();
+        }
+        return floatingNode;
+    }
+    // Toggle collapse/expand all children of a root node
+    toggleCollapseRoot(rootNode) {
+        console.log('[COLLAPSE] toggleCollapseRoot called', {
+            nodeText: rootNode.data.text,
+            isRoot: rootNode.data.isRoot,
+            numChildren: rootNode.children.length
+        });
+        if (!rootNode.data.isRoot) {
+            console.log('[COLLAPSE] Node is not a root, returning');
+            return;
+        }
+        // Check if any children are expanded
+        let hasExpandedChildren = false;
+        rootNode.children.forEach(child => {
+            if (child.isExpand) {
+                hasExpandedChildren = true;
+            }
+        });
+        console.log('[COLLAPSE] Collapse state:', {
+            hasExpandedChildren,
+            action: hasExpandedChildren ? 'COLLAPSE ALL' : 'EXPAND ALL'
+        });
+        // If any are expanded, collapse all; otherwise expand all
+        if (hasExpandedChildren) {
+            this.collapseAllChildren(rootNode);
+        }
+        else {
+            this.expandAllChildren(rootNode);
+        }
+        this.refresh();
+        console.log('[COLLAPSE] Refresh complete');
+    }
+    // Collapse all descendants of a node
+    collapseAllChildren(node) {
+        console.log('[COLLAPSE] collapseAllChildren called for:', node.data.text);
+        let count = 0;
+        this.traverseDF((n) => {
+            if (n !== node && n.isExpand) {
+                console.log('[COLLAPSE] Collapsing:', n.data.text);
+                n.collapse();
+                count++;
+            }
+        }, node);
+        console.log(`[COLLAPSE] Collapsed ${count} nodes`);
+    }
+    // Expand all descendants of a node
+    expandAllChildren(node) {
+        console.log('[COLLAPSE] expandAllChildren called for:', node.data.text);
+        let count = 0;
+        this.traverseDF((n) => {
+            if (!n.isExpand) {
+                console.log('[COLLAPSE] Expanding:', n.data.text);
+                n.expand();
+                count++;
+            }
+        }, node);
+        console.log(`[COLLAPSE] Expanded ${count} nodes`);
     }
     //get node list rect point
     getBoundingRect(list) {
@@ -10101,9 +11052,29 @@ class MindMap {
             // Select and center on the mindmap's root when opening it
             this.root.select();
             this.centerOnNode(this.root);
+            // Restore floating positions after initial layout
+            this.restoreFloatingPositions();
+            // Redraw hierarchical tree connections
+            this.mmLayout.createLink();
+            // Draw many-to-many graph connections
+            this.renderConnections();
             return;
         }
         this.mmLayout.layout(this.root, this.setting.layoutDirect || this.mmLayout.direct || 'mind map');
+        // After layout calculation, restore floating node positions
+        this.restoreFloatingPositions();
+        // Redraw hierarchical tree connection lines now that nodes are in their final positions
+        this.mmLayout.createLink();
+        // Draw many-to-many graph connections on top
+        this.renderConnections();
+    }
+    // Restore custom positions for floating nodes (overrides layout calculation)
+    restoreFloatingPositions() {
+        this.traverseDF((node) => {
+            if (node.data.isFloating && node.data.floatingX !== undefined && node.data.floatingY !== undefined) {
+                node.setPosition(node.data.floatingX, node.data.floatingY);
+            }
+        });
     }
     refresh() {
         this.layout();
@@ -10392,6 +11363,216 @@ class MindMap {
                 console.log(err);
             }
         }
+    }
+    // ========== CONNECTION MANAGEMENT (Many-to-Many Graph Support) ==========
+    // Find node by ID across all roots
+    findNodeById(nodeId) {
+        let found = null;
+        this.traverseDF((node) => {
+            if (node.getId() === nodeId) {
+                found = node;
+                return false; // Stop traversal
+            }
+        });
+        return found;
+    }
+    // Create a connection between two nodes
+    createConnection(sourceNodeId, targetNodeId, type, label, bidirectional = false) {
+        const sourceNode = this.findNodeById(sourceNodeId);
+        const targetNode = this.findNodeById(targetNodeId);
+        if (!sourceNode || !targetNode) {
+            new obsidian.Notice('Cannot create connection: node not found');
+            return null;
+        }
+        // Add connection to source node
+        const connection = sourceNode.addConnection(targetNodeId, type, label, bidirectional);
+        // If bidirectional, add reverse connection
+        if (bidirectional) {
+            targetNode.addConnection(sourceNodeId, type, label, true);
+        }
+        // Redraw connections
+        this.refresh();
+        this.mindMapChange();
+        // Show success notice
+        let message = `Connection created: ${type}`;
+        if (label) {
+            message += ` ("${label}")`;
+        }
+        if (bidirectional) {
+            message += ' (bidirectional)';
+        }
+        new obsidian.Notice(message);
+        return connection;
+    }
+    // Remove a connection
+    removeConnection(connectionId) {
+        let removed = false;
+        this.traverseDF((node) => {
+            if (node.removeConnection(connectionId)) {
+                removed = true;
+                return false; // Stop traversal
+            }
+        });
+        if (removed) {
+            this.refresh();
+            this.mindMapChange();
+            new obsidian.Notice('Connection removed');
+        }
+        return removed;
+    }
+    // Remove all connections between two nodes
+    removeConnectionsBetween(nodeId1, nodeId2) {
+        const node1 = this.findNodeById(nodeId1);
+        const node2 = this.findNodeById(nodeId2);
+        if (!node1 || !node2)
+            return 0;
+        let count = 0;
+        count += node1.removeConnectionsTo(nodeId2);
+        count += node2.removeConnectionsTo(nodeId1);
+        if (count > 0) {
+            this.refresh();
+            this.mindMapChange();
+            new obsidian.Notice(`${count} connection(s) removed`);
+        }
+        return count;
+    }
+    // Draw all non-hierarchical connections
+    renderConnections() {
+        if (!this.connectionGroup)
+            return;
+        // Clear existing connection lines
+        this.connectionGroup.clear();
+        // Iterate through all nodes and draw their connections
+        this.traverseDF((node) => {
+            const connections = node.getConnections();
+            connections.forEach(conn => {
+                const targetNode = this.findNodeById(conn.targetId);
+                if (!targetNode)
+                    return;
+                // Get positions
+                const sourcePos = node.getPosition();
+                const sourceDim = node.getDimensions();
+                const targetPos = targetNode.getPosition();
+                const targetDim = targetNode.getDimensions();
+                // Calculate center points
+                const x1 = sourcePos.x + sourceDim.x / 2;
+                const y1 = sourcePos.y + sourceDim.y / 2;
+                const x2 = targetPos.x + targetDim.x / 2;
+                const y2 = targetPos.y + targetDim.y / 2;
+                // Draw connection line
+                const color = this.getConnectionColor(conn.type);
+                const line = this.connectionGroup.line(x1, y1, x2, y2)
+                    .stroke({
+                    width: 2,
+                    color: color,
+                    opacity: 0.6,
+                    dasharray: this.getConnectionDash(conn.type)
+                })
+                    .addClass('mm-connection-line')
+                    .attr('data-connection-id', conn.id)
+                    .attr('data-connection-type', conn.type);
+                // Add arrow marker if not bidirectional
+                if (!conn.bidirectional) {
+                    line.marker('end', 8, 8, function (add) {
+                        add.polygon('0,0 8,4 0,8').fill(color);
+                    });
+                }
+                // Add label if exists
+                if (conn.label) {
+                    const midX = (x1 + x2) / 2;
+                    const midY = (y1 + y2) / 2;
+                    this.connectionGroup.text(conn.label)
+                        .move(midX, midY)
+                        .font({ size: 12, fill: color })
+                        .addClass('mm-connection-label');
+                }
+                // Make clickable for editing/deletion
+                line.node.style.cursor = 'pointer';
+                line.node.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.handleConnectionClick(conn);
+                });
+            });
+        });
+    }
+    // Get color for connection type
+    getConnectionColor(type) {
+        const colors = {
+            'parent-child': '#666',
+            'reference': '#4a9eff',
+            'related': '#9b59b6',
+            'causes': '#e74c3c',
+            'contradicts': '#c0392b',
+            'supports': '#27ae60',
+            'depends-on': '#f39c12',
+            'similar-to': '#16a085',
+            'custom': '#95a5a6'
+        };
+        return colors[type] || '#666';
+    }
+    // Get dash pattern for connection type
+    getConnectionDash(type) {
+        if (type === 'reference' || type === 'related') {
+            return '5,5'; // Dashed for non-structural connections
+        }
+        return ''; // Solid line
+    }
+    // Handle connection click (for editing/deletion)
+    handleConnectionClick(connection) {
+        // Show context menu for connection
+        console.log('Connection clicked:', connection);
+        // For now, just allow deletion
+        if (confirm(`Delete this ${connection.type} connection?`)) {
+            this.removeConnection(connection.id);
+        }
+    }
+    // Enter connection creation mode
+    startConnectionMode(sourceNode) {
+        console.log('[CONNECTION] startConnectionMode called', {
+            sourceNode: sourceNode.data.text,
+            currentMode: this._connectionMode
+        });
+        this._connectionMode = true;
+        this._connectionSourceNode = sourceNode;
+        this.appEl.style.cursor = 'crosshair';
+        // Visual feedback
+        sourceNode.containEl.classList.add('mm-connection-source');
+        console.log('[CONNECTION] Connection mode activated, cursor:', this.appEl.style.cursor);
+        new obsidian.Notice('Click target node to create connection. Press ESC to cancel.');
+    }
+    // Exit connection mode
+    exitConnectionMode() {
+        console.log('[CONNECTION] exitConnectionMode called');
+        this._connectionMode = false;
+        if (this._connectionSourceNode) {
+            this._connectionSourceNode.containEl.classList.remove('mm-connection-source');
+        }
+        this._connectionSourceNode = null;
+        this.appEl.style.cursor = '';
+    }
+    // Handle node click in connection mode
+    handleConnectionModeClick(targetNode) {
+        if (!this._connectionMode || !this._connectionSourceNode)
+            return;
+        if (this._connectionSourceNode === targetNode) {
+            new obsidian.Notice('Cannot connect node to itself');
+            this.exitConnectionMode();
+            return;
+        }
+        // Check if app is available for modal
+        if (!this.app) {
+            console.warn('[CONNECTION] No app instance available, using default connection type');
+            const ConnectionType = require('./INode').ConnectionType;
+            this.createConnection(this._connectionSourceNode.getId(), targetNode.getId(), ConnectionType.REFERENCE, undefined, false);
+            this.exitConnectionMode();
+            return;
+        }
+        // Show modal to select connection type
+        const sourceNode = this._connectionSourceNode;
+        this.exitConnectionMode(); // Exit mode first so cursor returns to normal
+        new ConnectionTypeModal(this.app, (type, label, bidirectional) => {
+            this.createConnection(sourceNode.getId(), targetNode.getId(), type, label, bidirectional);
+        }).open();
     }
 }
 
@@ -39286,7 +40467,7 @@ class MindMapView extends obsidian.TextFileView {
         //     }
         //   });
         // }
-        this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings);
+        this.mindmap = new MindMap(mindData, this.contentEl, this.plugin.settings, this.app);
         this.mindmap.colors = this.colors;
         if (this.firstInit) {
             setTimeout(() => {
@@ -39460,6 +40641,28 @@ class MindMapSettingsTab extends obsidian.PluginSettingTab {
             });
         }));
         new obsidian.Setting(containerEl)
+            .setName('Graph Mode')
+            .setDesc('Enable Graph View style: circular nodes, straight lines, free positioning (like Obsidian Graph View)')
+            .addToggle(toggle => toggle
+            .setValue(this.plugin.settings.graphMode || false)
+            .onChange((value) => {
+            this.plugin.settings.graphMode = value;
+            this.plugin.saveData(this.plugin.settings);
+            const mindmapLeaves = this.app.workspace.getLeavesOfType(mindmapViewType);
+            mindmapLeaves.forEach((leaf) => {
+                var v = leaf.view;
+                v.mindmap.setting.graphMode = value;
+                // Toggle graph mode class
+                if (value) {
+                    v.mindmap.appEl.classList.add('mm-graph-mode');
+                }
+                else {
+                    v.mindmap.appEl.classList.remove('mm-graph-mode');
+                }
+                v.mindmap.refresh();
+            });
+        }));
+        new obsidian.Setting(containerEl)
             .setName(`${t('Canvas background')}`)
             .setDesc(`${t('Canvas background desc')}`)
             .addText(text => text
@@ -39604,6 +40807,205 @@ class MindMapPlugin extends obsidian.Plugin {
                         return true;
                     }
                     return false;
+                }
+            });
+            // Add New Root Node
+            this.addCommand({
+                id: 'Add new root node',
+                name: 'Add new root node (multi-map)',
+                hotkeys: [
+                    {
+                        modifiers: ['Alt', 'Shift'],
+                        key: 'N',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        const newRoot = mindmap.addNewRoot();
+                        newRoot.select();
+                        mindmap.selectNode = newRoot;
+                        mindmap.center();
+                    }
+                }
+            });
+            // Toggle Drag Mode
+            this.addCommand({
+                id: 'Toggle drag mode',
+                name: 'Toggle between Position and Reparent drag modes',
+                hotkeys: [
+                    {
+                        modifiers: ['Ctrl', 'Shift'],
+                        key: 'D',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        // Toggle the drag mode flag
+                        mindmap._forcedReparentMode = !mindmap._forcedReparentMode;
+                        // Update visual indicator
+                        if (mindmap._forcedReparentMode) {
+                            mindmap.appEl.classList.add('mm-reparent-mode');
+                        }
+                        else {
+                            mindmap.appEl.classList.remove('mm-reparent-mode');
+                        }
+                        const mode = mindmap._forcedReparentMode ? 'REPARENT' : 'POSITION';
+                        new obsidian.Notice(`Drag mode: ${mode} - ${mindmap._forcedReparentMode ? 'Drag to change parent-child relationships' : 'Drag to move nodes freely'}`, 3000);
+                    }
+                }
+            });
+            // Quick Add Floating Node
+            this.addCommand({
+                id: 'Quick add floating node',
+                name: 'Quick add floating node',
+                hotkeys: [
+                    {
+                        modifiers: ['Alt', 'Shift'],
+                        key: 'F',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        // Show modal for text input
+                        new TextInputModal(this.app, 'Enter node text...', (text) => {
+                            var mindmap = mindmapView.mindmap;
+                            // Calculate position at viewport center
+                            const containerRect = mindmap.containerEL.getBoundingClientRect();
+                            const scrollX = mindmap.containerEL.scrollLeft;
+                            const scrollY = mindmap.containerEL.scrollTop;
+                            let centerX = scrollX + containerRect.width / 2;
+                            let centerY = scrollY + containerRect.height / 2;
+                            // Check for collision and find empty spot if needed
+                            if (mindmap.checkCollision(centerX, centerY)) {
+                                const emptyPos = mindmap.findEmptyPosition(centerX, centerY);
+                                centerX = emptyPos.x;
+                                centerY = emptyPos.y;
+                            }
+                            const floatingNode = mindmap.addFloatingNode(text, centerX, centerY);
+                            floatingNode.select();
+                            mindmap.selectNode = floatingNode;
+                        }).open();
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'instant-node-capture',
+                name: 'Quick capture thought (create node at cursor)',
+                hotkeys: [
+                    {
+                        modifiers: ['Mod'],
+                        key: 'Enter',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        const mindmap = mindmapView.mindmap;
+                        mindmap.createNodeAtCursor();
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'edit-selected-node',
+                name: 'Edit selected node',
+                // DISABLED: No modifier keys break typing in Obsidian
+                // Use F2 or double-click instead
+                hotkeys: [],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView && mindmapView.mindmap.selectNode) {
+                        mindmapView.mindmap.selectNode.edit();
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'center-on-selected',
+                name: 'Center view on selected node',
+                // DISABLED: No modifier keys break typing in Obsidian
+                hotkeys: [],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView && mindmapView.mindmap.selectNode) {
+                        mindmapView.mindmap.centerOnNode(mindmapView.mindmap.selectNode);
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'toggle-collapse-selected',
+                name: 'Toggle collapse/expand selected node',
+                // DISABLED: No modifier keys break typing in Obsidian
+                // Click on the collapse button instead
+                hotkeys: [],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView && mindmapView.mindmap.selectNode) {
+                        const node = mindmapView.mindmap.selectNode;
+                        if (node.isExpand) {
+                            node.collapse();
+                        }
+                        else {
+                            node.expand();
+                        }
+                        mindmapView.mindmap.refresh();
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'deselect-all',
+                name: 'Clear selection',
+                hotkeys: [
+                    {
+                        modifiers: [],
+                        key: 'Escape',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        mindmapView.mindmap.clearSelectNode();
+                    }
+                }
+            });
+            this.addCommand({
+                id: 'reset-layout',
+                name: 'Reset mind map layout',
+                hotkeys: [
+                    {
+                        modifiers: ['Alt', 'Shift'],
+                        key: 'r',
+                    },
+                ],
+                callback: () => {
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    if (mindmapView) {
+                        var mindmap = mindmapView.mindmap;
+                        // Clear all floating positions
+                        mindmap.traverseDF((node) => {
+                            if (node.data.isFloating && !node.parent) {
+                                // Remove orphaned floating nodes from roots
+                                const index = mindmap.roots.indexOf(node);
+                                if (index > -1) {
+                                    mindmap.roots.splice(index, 1);
+                                    mindmap.contentEL.removeChild(node.containEl);
+                                }
+                            }
+                            else {
+                                // Clear floating state from connected nodes
+                                node.data.isFloating = false;
+                                delete node.data.floatingX;
+                                delete node.data.floatingY;
+                            }
+                        });
+                        // Refresh layout
+                        mindmap.refresh();
+                        mindmap.mindMapChange();
+                        new obsidian.Notice('Layout reset - all custom positions cleared');
+                    }
                 }
             });
             this.addCommand({
@@ -40654,12 +42056,37 @@ class MindMapPlugin extends obsidian.Plugin {
                 id: 'Show drag help',
                 name: `${t('Show drag & drop help')}`,
                 callback: () => {
-                    new Notice(`Drag & Drop Guide:
+                    new obsidian.Notice(`Drag & Drop Guide:
 • Drag any node to move it
 • Drop on another node to reparent
 • Drop on top/bottom: add as sibling
 • Drop on left/right: add as child
 • Ctrl+Drag: copy instead of move`, 10000);
+                }
+            });
+            // Create connection between nodes
+            this.addCommand({
+                id: 'create-node-connection',
+                name: 'Create connection from selected node',
+                hotkeys: [{ modifiers: ['Mod'], key: 'l' }],
+                callback: () => {
+                    console.log('[COMMAND] Create connection command triggered');
+                    const mindmapView = this.app.workspace.getActiveViewOfType(MindMapView);
+                    console.log('[COMMAND] mindmapView:', !!mindmapView, 'mindmap:', !!(mindmapView === null || mindmapView === void 0 ? void 0 : mindmapView.mindmap));
+                    if (mindmapView && mindmapView.mindmap) {
+                        const mindmap = mindmapView.mindmap;
+                        console.log('[COMMAND] selectNode:', mindmap.selectNode ? mindmap.selectNode.data.text : 'null');
+                        if (mindmap.selectNode) {
+                            console.log('[COMMAND] Calling startConnectionMode');
+                            mindmap.startConnectionMode(mindmap.selectNode);
+                        }
+                        else {
+                            new obsidian.Notice('Please select a source node first');
+                        }
+                    }
+                    else {
+                        console.log('[COMMAND] No mindmap view found');
+                    }
                 }
             });
             this.registerView(mindmapViewType, (leaf) => new MindMapView(leaf, this));

@@ -6,6 +6,7 @@ import { MindMapView } from '../MindMapView'
 import { frontMatterKey, basicFrontmatter } from '../constants';
 import Exec from './Execute'
 import {uuid} from '../MindMapView'
+import { ConnectionTypeModal } from '../modals'
 
 import importXmind  from './import/xmindZen'
 import jsZip from 'jszip'
@@ -85,8 +86,11 @@ export default class MindMap {
     connectionGroup: any;  // SVG group for non-hierarchical connections
     _connectionMode: boolean = false;  // Whether in connection creation mode
     _connectionSourceNode: INode = null;  // Source node when creating connection
+    app?: any;  // Obsidian app instance for modals
+    _dragThreshold: number = 5;  // Minimum pixels to move before drag starts (prevents double-click issues)
+    _hasDragStarted: boolean = false;  // Track if drag has actually started
 
-    constructor(data: INodeData, containerEL: HTMLElement, setting?: Setting) {
+    constructor(data: INodeData, containerEL: HTMLElement, setting?: Setting, app?: any) {
         this.setting = Object.assign({
             theme: 'default',
             //canvasSize: 8000,
@@ -101,6 +105,7 @@ export default class MindMap {
 
 
         this.data = data;
+        this.app = app;
         this.appEl = document.createElement('div');
 
         this.appEl.classList.add('mm-mindmap');
@@ -376,10 +381,12 @@ export default class MindMap {
         // CRITICAL: Also add to document to catch all drag events
         document.addEventListener('dragover', this.appDragover);
         document.addEventListener('drop', this.appDrop);
-        document.addEventListener('keyup', this.appKeyup);
-        document.addEventListener('keydown', this.appKeydown);
-        document.addEventListener('compositionstart',this.compositionStart)
-        document.addEventListener('compositionend',this.compositionEnd)
+        // COMPLETELY DISABLED: Keyboard listeners are breaking typing in Obsidian
+        // TODO: Re-implement with proper scoping
+        // this.appEl.addEventListener('keyup', this.appKeyup);
+        // this.appEl.addEventListener('keydown', this.appKeydown);
+        // this.appEl.addEventListener('compositionstart',this.compositionStart)
+        // this.appEl.addEventListener('compositionend',this.compositionEnd)
         document.body.addEventListener('mousewheel', this.appMousewheel);
 
         if(Platform.isDesktop){
@@ -410,10 +417,11 @@ export default class MindMap {
         // Remove document listeners
         document.removeEventListener('dragover', this.appDragover);
         document.removeEventListener('drop', this.appDrop);
-        document.removeEventListener('keyup', this.appKeyup);
-        document.removeEventListener('keydown', this.appKeydown);
-        document.removeEventListener('compositionstart',this.compositionStart)
-        document.removeEventListener('compositionend',this.compositionEnd)
+        // Keyboard listeners are disabled
+        // this.appEl.removeEventListener('keyup', this.appKeyup);
+        // this.appEl.removeEventListener('keydown', this.appKeydown);
+        // this.appEl.removeEventListener('compositionstart',this.compositionStart)
+        // this.appEl.removeEventListener('compositionend',this.compositionEnd)
 
         document.body.removeEventListener('mousewheel', this.appMousewheel);
 
@@ -463,7 +471,23 @@ export default class MindMap {
         this.isFocused = false;
     }
     appKeydown(e: KeyboardEvent) {
-        if (!this.isFocused) return; // Check if Mindmap is in focus or not
+        // CRITICAL: If any node is being edited, don't intercept keyboard events
+        if (this.editNode && this.editNode.data.isEdit) {
+            return;
+        }
+
+        // CRITICAL: Don't intercept if target is an input/textarea/contenteditable
+        const target = e.target as HTMLElement;
+        if (target && (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)) {
+            return;
+        }
+
+        if (!this.isFocused) {
+            return;
+        }
+
         var keyCode = e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
         var shiftKey = e.shiftKey;
@@ -546,7 +570,23 @@ export default class MindMap {
      }
 
     appKeyup(e: KeyboardEvent) {
-        if (!this.isFocused) return; // Check if Mindmap is in focus or not
+        // CRITICAL: If any node is being edited, don't intercept keyboard events
+        if (this.editNode && this.editNode.data.isEdit) {
+            return;
+        }
+
+        // CRITICAL: Don't intercept if target is an input/textarea/contenteditable
+        const target = e.target as HTMLElement;
+        if (target && (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable)) {
+            return;
+        }
+
+        if (!this.isFocused) {
+            return;
+        }
+
         var keyCode = e.keyCode || e.which || e.charCode;
         var ctrlKey = e.ctrlKey || e.metaKey;
         var shiftKey = e.shiftKey;
@@ -1603,6 +1643,11 @@ export default class MindMap {
                 var id = barEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
 
+                if (!node) {
+                    console.warn('[COLLAPSE] Node not found for id:', id);
+                    return;
+                }
+
                 console.log('[COLLAPSE] Toggle collapse for:', node.data.text, 'isExpand:', node.isExpand);
 
                 if (node.isExpand) {
@@ -1628,7 +1673,7 @@ export default class MindMap {
 
                  if(targetEl.closest('.mm-icon-delete-node')){
                     var selectNode = this.selectNode;
-                    if(!node.data.isRoot && selectNode){
+                    if(selectNode && !selectNode.data.isRoot){
                        selectNode.mindmap.execute("deleteNodeAndChild", { node: selectNode });
                        this._menuDom.style.display='none';
                     }
@@ -1639,6 +1684,11 @@ export default class MindMap {
             if (targetEl.closest('.mm-node')) {
                 var id = targetEl.closest('.mm-node').getAttribute('data-id');
                 var node = this.getNodeById(id);
+
+                if (!node) {
+                    console.warn('[CLICK] Node not found for id:', id);
+                    return;
+                }
 
                 console.log('[CLICK] Node clicked:', {
                     nodeText: node.data.text,
@@ -1716,6 +1766,12 @@ export default class MindMap {
             if (evt.target.closest('.mm-node')) {
                 var id = evt.target.closest('.mm-node').getAttribute('data-id');
                 this._dragNode = this.getNodeById(id);
+
+                if (!this._dragNode) {
+                    console.warn('[DRAG] Node not found for id:', id);
+                    return;
+                }
+
                 this.drag = true;
 
                 console.log('Drag started for node:', this._dragNode.data.text);
@@ -2006,14 +2062,50 @@ export default class MindMap {
             }
         }
 
-        // Handle node dragging
-        if(this.drag && this._nodeDragMode && this._dragNode){
+        // Handle node dragging (or check if we should start dragging)
+        if(this._dragNode){
             var x = evt.pageX;
             var y = evt.pageY;
+
+            // Check if we've exceeded the drag threshold
+            if(!this._hasDragStarted){
+                const deltaX = x - this.startX;
+                const deltaY = y - this.startY;
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+                if(distance > this._dragThreshold){
+                    // START the drag now
+                    console.log(`[DRAG] Threshold exceeded (${distance.toFixed(1)}px > ${this._dragThreshold}px), starting drag`);
+                    this._hasDragStarted = true;
+                    this._nodeDragMode = true;
+                    this.drag = true;
+
+                    // Add visual feedback for dragging
+                    this._dragNode.containEl.classList.add('mm-dragging');
+                    this.appEl.classList.add('mm-dragging-active');
+
+                    // Make SVG pass-through during drag
+                    const svgElement = this.contentEL.querySelector('svg');
+                    if (svgElement) {
+                        svgElement.style.pointerEvents = 'none';
+                    }
+
+                    console.log(`[DRAG] Node drag STARTED for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
+                } else {
+                    // Haven't moved enough yet - don't do anything
+                    return;
+                }
+            }
+
             // Account for zoom scale when calculating delta
             const scale = this.mindScale / 100;
             this.dx = (x - this.startX) / scale;
             this.dy = (y - this.startY) / scale;
+
+            // Only process drag logic if drag has actually started
+            if(!this._hasDragStarted){
+                return;
+            }
 
             // Check if Alt key is still pressed OR forced mode (in case user pressed it during drag)
             if (!this._isReparentDrag && (evt.altKey || evt.metaKey || this._forcedReparentMode)) {
@@ -2129,6 +2221,12 @@ export default class MindMap {
     appMouseDown(evt:MouseEvent){
         const targetEl = evt.target as HTMLElement;
 
+        // Don't start drag if we're in connection mode - let click handler deal with it
+        if (this._connectionMode) {
+            console.log('[DRAG] In connection mode - skipping drag setup');
+            return;
+        }
+
         // Don't start drag if clicking on collapse button - let click handler deal with it
         if(targetEl.hasClass('mm-node-bar') || targetEl.closest('.mm-node-bar')){
             console.log('[DRAG] Clicked on collapse button - skipping drag');
@@ -2151,26 +2249,30 @@ export default class MindMap {
             const nodeId = nodeEl.getAttribute('data-id');
             this._dragNode = this.getNodeById(nodeId);
 
-            // Floating nodes (no parent connection) default to reparent mode for easy connection
-            const isFloatingOrphan = this._dragNode.data.isFloating || !this._dragNode.parent;
-            this._autoReparentFloating = isFloatingOrphan;
+            if (!this._dragNode) {
+                console.warn('[DRAG] Node not found for id:', nodeId);
+                return;
+            }
 
-            // Check if Alt key is pressed OR forced reparent mode is enabled OR node is floating
-            this._isReparentDrag = evt.altKey || evt.metaKey || this._forcedReparentMode || isFloatingOrphan;
+            // For graph-mode connections, nodes should be freely movable by default
+            // Only enter reparent mode when Alt/Cmd is held OR forced mode is enabled
+            this._isReparentDrag = evt.altKey || evt.metaKey || this._forcedReparentMode;
 
-            console.log('[DRAG] Drag mode determined:', {
+            console.log('[DRAG] Drag PREPARED (not started yet):', {
                 nodeText: this._dragNode.data.text,
                 isReparentDrag: this._isReparentDrag,
                 altKey: evt.altKey,
                 metaKey: evt.metaKey,
                 forcedReparentMode: this._forcedReparentMode,
                 isFloating: this._dragNode.data.isFloating,
-                hasParent: !!this._dragNode.parent,
-                autoReparent: isFloatingOrphan
+                hasParent: !!this._dragNode.parent
             });
 
-            this._nodeDragMode = true;
-            this.drag = true;
+            // DON'T start drag yet - just prepare for it
+            // Drag will start in appMouseMove if movement exceeds threshold
+            this._nodeDragMode = false;  // Will be set to true after threshold
+            this.drag = false;  // Will be set to true after threshold
+            this._hasDragStarted = false;  // Track if we actually start dragging
             this.startX = evt.pageX;
             this.startY = evt.pageY;
 
@@ -2178,17 +2280,7 @@ export default class MindMap {
             const pos = this._dragNode.getPosition();
             this._dragStartPos = {x: pos.x, y: pos.y};
 
-            console.log(`[DRAG] Node drag started for: ${this._dragNode.data.text}, Mode: ${this._isReparentDrag ? 'REPARENT' : 'POSITION'}`);
-
-            // Add visual feedback for dragging
-            this._dragNode.containEl.classList.add('mm-dragging');
-            this.appEl.classList.add('mm-dragging-active');
-
-            // Make SVG pass-through during drag
-            const svgElement = this.contentEL.querySelector('svg');
-            if (svgElement) {
-                svgElement.style.pointerEvents = 'none';
-            }
+            console.log(`[DRAG] Waiting for movement beyond ${this._dragThreshold}px threshold`);
 
             evt.preventDefault();
             evt.stopPropagation();
@@ -2207,12 +2299,24 @@ export default class MindMap {
         console.log('[DRAG] appMouseUp fired', {
             nodeDragMode: this._nodeDragMode,
             hasDragNode: !!this._dragNode,
+            hasDragStarted: this._hasDragStarted,
             dragNodeText: this._dragNode?.data.text,
             isReparentDrag: this._isReparentDrag,
             hasDropTarget: !!this._currentDropTarget,
             dropTargetText: this._currentDropTarget?.data.text,
             dragType: this._dragType
         });
+
+        // If we have a drag node but drag never started (below threshold),
+        // just clean up and allow click/double-click to proceed
+        if(this._dragNode && !this._hasDragStarted){
+            console.log('[DRAG] Drag never started (below threshold) - treating as click/double-click');
+            this._dragNode = null;
+            this._nodeDragMode = false;
+            this._hasDragStarted = false;
+            this.drag = false;
+            return;  // Let click/double-click handlers work
+        }
 
         // Handle node drop
         if(this._nodeDragMode && this._dragNode){
@@ -2310,28 +2414,54 @@ export default class MindMap {
             this._isReparentDrag = false;
             this._autoReparentFloating = false;
             this._dragStartPos = null;
+            this._hasDragStarted = false;  // Reset for next drag
         }
 
         this.drag = false;
+        this._dragNode = null;  // Clear drag node reference
     }
 
     appDblclickFn(evt: MouseEvent) {
-        if (evt.target instanceof HTMLElement) {
+        console.log('[DBLCLICK] Double-click detected', evt.target);
 
-            if (evt.target.hasClass('mm-node-bar')) {
-                evt.preventDefault();
-                evt.stopPropagation();
+        if (!(evt.target instanceof HTMLElement)) {
+            console.log('[DBLCLICK] Target is not HTMLElement');
+            return;
+        }
+
+        console.log('[DBLCLICK] Target is HTMLElement:', evt.target.className);
+
+        if (evt.target.hasClass('mm-node-bar')) {
+            console.log('[DBLCLICK] Clicked on collapse bar - ignoring');
+            evt.preventDefault();
+            evt.stopPropagation();
+            return;
+        }
+
+        const nodeEl = evt.target.closest('.mm-node');
+        console.log('[DBLCLICK] Closest node element:', nodeEl);
+
+        if (nodeEl instanceof HTMLElement) {
+            var id = nodeEl.getAttribute('data-id');
+            console.log('[DBLCLICK] Node id:', id);
+            const node = this.getNodeById(id);
+            if (!node) {
+                console.warn('[DBLCLICK] Node not found for id:', id);
                 return;
             }
-            if (evt.target.closest('.mm-node') instanceof HTMLElement) {
-                var id = evt.target.closest('.mm-node').getAttribute('data-id');
-                this.selectNode = this.getNodeById(id);
-                if (!this.editNode || (this.editNode && this.editNode != this.selectNode)) {
-                    this.selectNode?.edit();
-                    this.editNode = this.selectNode;
-                    this._menuDom.style.display='none';
-                }
+            this.selectNode = node;
+            console.log('[DBLCLICK] Found node:', node.data.text, 'editNode:', this.editNode?.data.text);
+            if (!this.editNode || (this.editNode && this.editNode != this.selectNode)) {
+                console.log('[DBLCLICK] Calling edit() on node');
+                this.selectNode?.edit();
+                this.editNode = this.selectNode;
+                this._menuDom.style.display='none';
+            } else {
+                console.log('[DBLCLICK] Skipping edit - already editing this node');
             }
+        } else {
+            console.log('[DBLCLICK] Did not find .mm-node parent - you clicked on empty canvas');
+            new Notice('💡 Double-click directly on a node box to edit it', 3000);
         }
     }
 
@@ -3240,7 +3370,15 @@ export default class MindMap {
         this.refresh();
         this.mindMapChange();
 
-        new Notice(`Connection created: ${type}`);
+        // Show success notice
+        let message = `Connection created: ${type}`;
+        if (label) {
+            message += ` ("${label}")`;
+        }
+        if (bidirectional) {
+            message += ' (bidirectional)';
+        }
+        new Notice(message);
         return connection;
     }
 
@@ -3388,17 +3526,23 @@ export default class MindMap {
 
     // Enter connection creation mode
     startConnectionMode(sourceNode: INode) {
+        console.log('[CONNECTION] startConnectionMode called', {
+            sourceNode: sourceNode.data.text,
+            currentMode: this._connectionMode
+        });
         this._connectionMode = true;
         this._connectionSourceNode = sourceNode;
         this.appEl.style.cursor = 'crosshair';
 
         // Visual feedback
         sourceNode.containEl.classList.add('mm-connection-source');
+        console.log('[CONNECTION] Connection mode activated, cursor:', this.appEl.style.cursor);
         new Notice('Click target node to create connection. Press ESC to cancel.');
     }
 
     // Exit connection mode
     exitConnectionMode() {
+        console.log('[CONNECTION] exitConnectionMode called');
         this._connectionMode = false;
         if (this._connectionSourceNode) {
             this._connectionSourceNode.containEl.classList.remove('mm-connection-source');
@@ -3417,17 +3561,34 @@ export default class MindMap {
             return;
         }
 
-        // For now, create a reference connection (can make this configurable)
-        const ConnectionType = require('./INode').ConnectionType;
-        this.createConnection(
-            this._connectionSourceNode.getId(),
-            targetNode.getId(),
-            ConnectionType.REFERENCE,
-            undefined,
-            false
-        );
+        // Check if app is available for modal
+        if (!this.app) {
+            console.warn('[CONNECTION] No app instance available, using default connection type');
+            const ConnectionType = require('./INode').ConnectionType;
+            this.createConnection(
+                this._connectionSourceNode.getId(),
+                targetNode.getId(),
+                ConnectionType.REFERENCE,
+                undefined,
+                false
+            );
+            this.exitConnectionMode();
+            return;
+        }
 
-        this.exitConnectionMode();
+        // Show modal to select connection type
+        const sourceNode = this._connectionSourceNode;
+        this.exitConnectionMode(); // Exit mode first so cursor returns to normal
+
+        new ConnectionTypeModal(this.app, (type, label, bidirectional) => {
+            this.createConnection(
+                sourceNode.getId(),
+                targetNode.getId(),
+                type,
+                label,
+                bidirectional
+            );
+        }).open();
     }
 
 }

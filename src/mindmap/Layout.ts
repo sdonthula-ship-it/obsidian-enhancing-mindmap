@@ -553,56 +553,75 @@ export default class Layout {
 					var y22 = parseInt(childBox.height + childPos.y+'')
 				}
 
+				// Check if graph mode is enabled for straight lines
+				const isGraphMode = me.mind && me.mind.setting && me.mind.setting.graphMode;
+
 				if (level == rootLevel) {
+					if (isGraphMode) {
+						// Graph mode: straight line
+						var pathStr = `M${x1} ${y1} L${x2} ${y2}`;
+						line1.plot(pathStr);
+					} else {
+						// Tree mode: curved Bezier
+						var cpx1 = parseInt(from.x+'') + (to.x - from.x) / 9;
+						var cpy1 = parseInt(from.y+'') + (to.y - from.y) / 9 * 8;
+						var cpx2 = parseInt(from.x + (to.x - from.x) / 9 * 8+'');
+						var cpy2 = parseInt(to.y+'');
 
-					var cpx1 = parseInt(from.x+'') + (to.x - from.x) / 9;
-					var cpy1 = parseInt(from.y+'') + (to.y - from.y) / 9 * 8;
-					var cpx2 = parseInt(from.x + (to.x - from.x) / 9 * 8+'');
-					var cpy2 = parseInt(to.y+'');
-
-					var pathStr = `M${x1} ${y1}  C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${x2} ${y2}`;
-					line1.plot(pathStr);
+						var pathStr = `M${x1} ${y1}  C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${x2} ${y2}`;
+						line1.plot(pathStr);
+					}
 
 				} else {
 
-					var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
-						color: _stroke,
-						width: lineWidth,
-						linecap: 'miter',
-						linejoin: 'miter',
-						opacity: 0.6
-					}).fill('none').addClass('mm-connection-line-horizontal');
+					if (!isGraphMode) {
+						// Tree mode: show horizontal connector line
+						var horizontalLine = me.svgDom.line(x11, y11, x22, y22).stroke({
+							color: _stroke,
+							width: lineWidth,
+							linecap: 'miter',
+							linejoin: 'miter',
+							opacity: 0.6
+						}).fill('none').addClass('mm-connection-line-horizontal');
 
-					// Add hover effect for horizontal line
-					horizontalLine.node.addEventListener('mouseenter', function() {
-						horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
-					});
-					horizontalLine.node.addEventListener('mouseleave', function() {
-						horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
-					});
-
-					//var c = parseInt((to.y - from.y) / 6+'');
-					 var cpx11 = {
-						x: from.x + dis / 2,
-						y: from.y
-					}
-					 var cpx12 = {
-						x: from.x + dis / 2,
-						y: to.y
-					}
-					if (direct == 'left') {
-						cpx11.x = from.x - dis / 2;
-						cpx12.x = from.x - dis / 2;
+						// Add hover effect for horizontal line
+						horizontalLine.node.addEventListener('mouseenter', function() {
+							horizontalLine.stroke({ width: lineWidth + 1, opacity: 1 });
+						});
+						horizontalLine.node.addEventListener('mouseleave', function() {
+							horizontalLine.stroke({ width: lineWidth, opacity: 0.6 });
+						});
 					}
 
-					cpx11.x = parseInt(cpx11.x+'');
-					cpx11.y = parseInt(cpx11.y+'');
-					cpx12.x = parseInt(cpx12.x+'');
-					cpx12.y = parseInt(cpx12.y+'');
+					if (isGraphMode) {
+						// Graph mode: straight line
+						var path = `M${x1} ${y1} L${x2} ${y2}`;
+						line1.plot(path);
+					} else {
+						// Tree mode: curved Bezier
+						//var c = parseInt((to.y - from.y) / 6+'');
+						 var cpx11 = {
+							x: from.x + dis / 2,
+							y: from.y
+						}
+						 var cpx12 = {
+							x: from.x + dis / 2,
+							y: to.y
+						}
+						if (direct == 'left') {
+							cpx11.x = from.x - dis / 2;
+							cpx12.x = from.x - dis / 2;
+						}
 
-					var path = `M${x1} ${y1}  C ${cpx11.x} ${cpx11.y}, ${cpx12.x} ${cpx12.y}, ${x2} ${y2}`;
+						cpx11.x = parseInt(cpx11.x+'');
+						cpx11.y = parseInt(cpx11.y+'');
+						cpx12.x = parseInt(cpx12.x+'');
+						cpx12.y = parseInt(cpx12.y+'');
 
-					line1.plot(path);
+						var path = `M${x1} ${y1}  C ${cpx11.x} ${cpx11.y}, ${cpx12.x} ${cpx12.y}, ${x2} ${y2}`;
+
+						line1.plot(path);
+					}
 
 				}
 

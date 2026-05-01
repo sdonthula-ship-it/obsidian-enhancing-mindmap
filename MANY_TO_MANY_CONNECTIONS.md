@@ -164,29 +164,29 @@ Connections are stored in the source node's `data.connections` array.
 
 ## Current Limitations
 
-1. **Default connection type**: Currently creates "reference" connections
-   - Future: Modal to choose connection type during creation
+1. ~~**Default connection type**~~ - ✅ **RESOLVED** (see CONNECTION_TYPE_SELECTOR.md)
+   - Modal now allows choosing connection type during creation
 
-2. **No connection labels yet**: UI for adding labels not yet implemented
-   - API supports labels, just needs UI
+2. ~~**No connection labels yet**~~ - ✅ **RESOLVED** (see CONNECTION_TYPE_SELECTOR.md)
+   - Modal includes optional label input field
 
-3. **No bidirectional toggle**: All connections are one-way by default
-   - Can be set programmatically
+3. ~~**No bidirectional toggle**~~ - ✅ **RESOLVED** (see CONNECTION_TYPE_SELECTOR.md)
+   - Modal includes bidirectional toggle
 
 4. **Click-only creation**: No drag-from-edge UI yet
    - Planned for Phase 1.2
 
 5. **No connection editing UI**: Must delete and recreate to change type
-   - Connection type modal coming in future update
+   - Planned for Phase 1.2
 
 ## What's Next (Phase 1.2)
 
 From the roadmap:
+- ✅ **Connection type selector** - Modal when creating connection (**COMPLETED**)
 - **Visual connection creation** - Drag from node edge to create connection
 - **Connection preview** - See line while dragging
 - **Connection editing** - Right-click to edit type/label
 - **Reconnect endpoints** - Drag connection ends to change source/target
-- **Connection type selector** - Modal when creating connection
 
 ## Use Cases Now Possible
 
