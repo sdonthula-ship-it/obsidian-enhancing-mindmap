@@ -8498,6 +8498,87 @@ class ConnectionTypeModal extends obsidian.Modal {
         contentEl.empty();
     }
 }
+// Edit Connection Modal
+class EditConnectionModal extends obsidian.Modal {
+    constructor(app, connection, onSave, onDelete) {
+        super(app);
+        this.connection = connection;
+        this.connectionType = connection.type;
+        this.label = connection.label || '';
+        this.bidirectional = connection.bidirectional || false;
+        this.onSave = onSave;
+        this.onDelete = onDelete;
+    }
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl("h3", { text: "Edit Connection" });
+        // Connection Type Dropdown
+        new obsidian.Setting(contentEl)
+            .setName("Connection type")
+            .setDesc("Select the type of relationship")
+            .addDropdown((dropdown) => {
+            dropdown
+                .addOption(ConnectionType.REFERENCE, "Reference (link to related idea)")
+                .addOption(ConnectionType.RELATED, "Related (similar concept)")
+                .addOption(ConnectionType.CAUSES, "Causes (causal relationship)")
+                .addOption(ConnectionType.CONTRADICTS, "Contradicts (opposing idea)")
+                .addOption(ConnectionType.SUPPORTS, "Supports (supporting evidence)")
+                .addOption(ConnectionType.DEPENDS_ON, "Depends On (dependency)")
+                .addOption(ConnectionType.SIMILAR_TO, "Similar To (analogous)")
+                .addOption(ConnectionType.CUSTOM, "Custom (user-defined)")
+                .setValue(this.connectionType)
+                .onChange((value) => {
+                this.connectionType = value;
+            });
+        });
+        // Label Input
+        new obsidian.Setting(contentEl)
+            .setName("Label (optional)")
+            .setDesc("Add a label to describe the connection")
+            .addText((text) => text
+            .setPlaceholder("e.g., 'leads to', 'inspired by'")
+            .setValue(this.label)
+            .onChange((value) => {
+            this.label = value;
+        }));
+        // Bidirectional Checkbox
+        new obsidian.Setting(contentEl)
+            .setName("Bidirectional")
+            .setDesc("Create a two-way connection")
+            .addToggle((toggle) => toggle
+            .setValue(this.bidirectional)
+            .onChange((value) => {
+            this.bidirectional = value;
+        }));
+        // Buttons
+        new obsidian.Setting(contentEl)
+            .addButton((btn) => btn
+            .setButtonText("Save")
+            .setCta()
+            .onClick(() => {
+            this.close();
+            this.onSave(this.connectionType, this.label.trim() || undefined, this.bidirectional);
+        }))
+            .addButton((btn) => btn
+            .setButtonText("Delete")
+            .setWarning()
+            .onClick(() => {
+            if (confirm(`Delete this ${this.connection.type} connection?`)) {
+                this.close();
+                this.onDelete();
+            }
+        }))
+            .addButton((btn) => btn
+            .setButtonText("Cancel")
+            .onClick(() => {
+            this.close();
+        }));
+    }
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
 
 var mind = {};
 var color = ['#fda16c', '#74bdf7', '#71FF5E', 'orange', '#D4D4AA', 'yellow'];
@@ -11508,6 +11589,35 @@ class MindMap {
         }
         return removed;
     }
+    // Update an existing connection
+    updateConnection(connectionId, type, label, bidirectional) {
+        let sourceNode = null;
+        // Find the node containing this connection
+        this.traverseDF((node) => {
+            var _a;
+            const conn = (_a = node.data.connections) === null || _a === void 0 ? void 0 : _a.find(c => c.id === connectionId);
+            if (conn) {
+                sourceNode = node;
+                return false; // Stop traversal
+            }
+        });
+        if (!sourceNode) {
+            console.error('[CONNECTION] Connection not found:', connectionId);
+            return false;
+        }
+        const connection = sourceNode.data.connections.find(c => c.id === connectionId);
+        if (!connection)
+            return false;
+        // Update connection properties
+        connection.type = type;
+        connection.label = label;
+        connection.bidirectional = bidirectional;
+        console.log('[CONNECTION] Updated connection:', connection);
+        this.refresh();
+        this.mindMapChange();
+        new obsidian.Notice(`Connection updated: ${type}${label ? ` (${label})` : ''}`);
+        return true;
+    }
     // Remove all connections between two nodes
     removeConnectionsBetween(nodeId1, nodeId2) {
         const node1 = this.findNodeById(nodeId1);
@@ -11607,12 +11717,25 @@ class MindMap {
     }
     // Handle connection click (for editing/deletion)
     handleConnectionClick(connection) {
-        // Show context menu for connection
-        console.log('Connection clicked:', connection);
-        // For now, just allow deletion
-        if (confirm(`Delete this ${connection.type} connection?`)) {
-            this.removeConnection(connection.id);
+        console.log('[CONNECTION] Connection clicked:', connection);
+        if (!this.app) {
+            console.error('[CONNECTION] No app instance - cannot show edit modal');
+            // Fallback: just delete
+            if (confirm(`Delete this ${connection.type} connection?`)) {
+                this.removeConnection(connection.id);
+            }
+            return;
         }
+        // Show edit modal
+        new EditConnectionModal(this.app, connection, (type, label, bidirectional) => {
+            // Save changes
+            console.log('[CONNECTION] Saving connection changes:', { type, label, bidirectional });
+            this.updateConnection(connection.id, type, label, bidirectional);
+        }, () => {
+            // Delete connection
+            console.log('[CONNECTION] Deleting connection:', connection.id);
+            this.removeConnection(connection.id);
+        }).open();
     }
     // Enter connection creation mode
     startConnectionMode(sourceNode) {

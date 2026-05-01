@@ -6,7 +6,7 @@ import { MindMapView } from '../MindMapView'
 import { frontMatterKey, basicFrontmatter } from '../constants';
 import Exec from './Execute'
 import {uuid} from '../MindMapView'
-import { ConnectionTypeModal } from '../modals'
+import { ConnectionTypeModal, EditConnectionModal } from '../modals'
 
 import importXmind  from './import/xmindZen'
 import jsZip from 'jszip'
@@ -3502,6 +3502,42 @@ export default class MindMap {
         return removed;
     }
 
+    // Update an existing connection
+    updateConnection(connectionId: string, type: ConnectionType, label?: string, bidirectional?: boolean) {
+        let updated = false;
+        let sourceNode: INode = null;
+
+        // Find the node containing this connection
+        this.traverseDF((node: INode) => {
+            const conn = node.data.connections?.find(c => c.id === connectionId);
+            if (conn) {
+                sourceNode = node;
+                return false; // Stop traversal
+            }
+        });
+
+        if (!sourceNode) {
+            console.error('[CONNECTION] Connection not found:', connectionId);
+            return false;
+        }
+
+        const connection = sourceNode.data.connections.find(c => c.id === connectionId);
+        if (!connection) return false;
+
+        // Update connection properties
+        connection.type = type;
+        connection.label = label;
+        connection.bidirectional = bidirectional;
+
+        console.log('[CONNECTION] Updated connection:', connection);
+
+        this.refresh();
+        this.mindMapChange();
+        new Notice(`Connection updated: ${type}${label ? ` (${label})` : ''}`);
+
+        return true;
+    }
+
     // Remove all connections between two nodes
     removeConnectionsBetween(nodeId1: string, nodeId2: string) {
         const node1 = this.findNodeById(nodeId1);
@@ -3615,13 +3651,32 @@ export default class MindMap {
 
     // Handle connection click (for editing/deletion)
     handleConnectionClick(connection: import('./INode').IConnection) {
-        // Show context menu for connection
-        console.log('Connection clicked:', connection);
+        console.log('[CONNECTION] Connection clicked:', connection);
 
-        // For now, just allow deletion
-        if (confirm(`Delete this ${connection.type} connection?`)) {
-            this.removeConnection(connection.id);
+        if (!this.app) {
+            console.error('[CONNECTION] No app instance - cannot show edit modal');
+            // Fallback: just delete
+            if (confirm(`Delete this ${connection.type} connection?`)) {
+                this.removeConnection(connection.id);
+            }
+            return;
         }
+
+        // Show edit modal
+        new EditConnectionModal(
+            this.app,
+            connection,
+            (type, label, bidirectional) => {
+                // Save changes
+                console.log('[CONNECTION] Saving connection changes:', { type, label, bidirectional });
+                this.updateConnection(connection.id, type, label, bidirectional);
+            },
+            () => {
+                // Delete connection
+                console.log('[CONNECTION] Deleting connection:', connection.id);
+                this.removeConnection(connection.id);
+            }
+        ).open();
     }
 
     // Enter connection creation mode
