@@ -11304,6 +11304,7 @@ class MindMap {
     getMarkdown() {
         var md = '';
         var level = this.setting.headLevel;
+        // Traverse all roots (including floating nodes) instead of just this.root
         this.traverseDF((n) => {
             var l = n.getLevel() + 1;
             var hPrefix = '', space = '';
@@ -11364,7 +11365,7 @@ class MindMap {
                     md += `${space}-\n`;
                 }
             }
-        }, this.root, true);
+        }, undefined, true); // Pass undefined to traverse ALL roots (including floating nodes)
         return md.trim();
     }
     scale(num) {
